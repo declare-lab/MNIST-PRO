@@ -1,0 +1,146 @@
+[
+  {
+    "tag": "L1",
+    "episode": 0,
+    "digits": 1,
+    "canvas": "L1_ep0_canvas.png",
+    "box_size": 64,
+    "step_size": 32,
+    "image_size": 224,
+    "source_run": "gemini-3.7-flash_img224_box64_step32_maxsteps36_seed42_MemoryVisionAgent_hist1_evalsets10_20260824_110242",
+    "observations": [
+      {
+        "step": 0,
+        "file": "L1_ep0_step0.png",
+        "window": [
+          130,
+          130
+        ]
+      },
+      {
+        "step": 1,
+        "file": "L1_ep0_step1.png",
+        "window": [
+          130,
+          98
+        ]
+      },
+      {
+        "step": 2,
+        "file": "L1_ep0_step2.png",
+        "window": [
+          130,
+          66
+        ]
+      }
+    ]
+  },
+  {
+    "tag": "L1",
+    "episode": 7,
+    "digits": 1,
+    "canvas": "L1_ep7_canvas.png",
+    "box_size": 64,
+    "step_size": 32,
+    "image_size": 224,
+    "source_run": "gemini-3.7-flash_img224_box64_step32_maxsteps36_seed42_MemoryVisionAgent_hist1_evalsets10_20260824_110242",
+    "observations": [
+      {
+        "step": 0,
+        "file": "L1_ep7_step0.png",
+        "window": [
+          36,
+          110
+        ]
+      },
+      {
+        "step": 1,
+        "file": "L1_ep7_step1.png",
+        "window": [
+          36,
+          78
+        ]
+      },
+      {
+        "step": 2,
+        "file": "L1_ep7_step2.png",
+        "window": [
+          68,
+          78
+        ]
+      }
+    ]
+  },
+  {
+    "tag": "L2",
+    "episode": 0,
+    "digits": 2,
+    "canvas": "L2_ep0_canvas.png",
+    "box_size": 64,
+    "step_size": 32,
+    "image_size": 224,
+    "source_run": "multidigit_2_gemini-3.7-flash_img224_box64_step32_maxsteps78_seed42_MultiDigitMemoryVisionAgent_hist1_evalsets10_20260824_114120",
+    "observations": [
+      {
+        "step": 0,
+        "file": "L2_ep0_step0.png",
+        "window": [
+          78,
+          18
+        ]
+      },
+      {
+        "step": 1,
+        "file": "L2_ep0_step1.png",
+        "window": [
+          78,
+          50
+        ]
+      },
+      {
+        "step": 2,
+        "file": "L2_ep0_step2.png",
+        "window": [
+          78,
+          82
+        ]
+      }
+    ]
+  },
+  {
+    "tag": "L2",
+    "episode": 4,
+    "digits": 2,
+    "canvas": "L2_ep4_canvas.png",
+    "box_size": 64,
+    "step_size": 32,
+    "image_size": 224,
+    "source_run": "multidigit_2_gemini-3.7-flash_img224_box64_step32_maxsteps78_seed42_MultiDigitMemoryVisionAgent_hist1_evalsets10_20260824_114120",
+    "observations": [
+      {
+        "step": 0,
+        "file": "L2_ep4_step0.png",
+        "window": [
+          325,
+          69
+        ]
+      },
+      {
+        "step": 1,
+        "file": "L2_ep4_step1.png",
+        "window": [
+          293,
+          69
+        ]
+      },
+      {
+        "step": 2,
+        "file": "L2_ep4_step2.png",
+        "window": [
+          261,
+          69
+        ]
+      }
+    ]
+  }
+]

@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# datasets and run outputs are not source
+data/
+results/
+outputs/
+*.pt
+
+.DS_Store
+.env

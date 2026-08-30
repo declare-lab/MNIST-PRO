@@ -1,0 +1,59 @@
+# The evaluation matrix, declared rather than assumed.
+#
+# `mnist-pro matrix --config configs/main_table.yaml --results-dir <dir>` reports
+# which of these cells exist, which are missing, and which axes are not fully
+# crossed. The released study is missing every Textual Belief State cell at an
+# unbounded horizon, which is why horizon and memory cannot be separated in it.
+
+defaults:
+  seed: 42
+  image_size: 224
+  box_size: 64
+  step_size: 32
+  harness: turn_based
+  arm: A0
+
+matrix:
+  # --- main table: memory taxonomy x horizon x level -------------------------
+  - model: [gemini-3.7-flash, gemini-3.6-flash, gemini-3.1-pro-preview,
+            claude-opus-5, claude-sonnet-5, claude-fable-5,
+            gpt-5.6, glm-4.6v, qwen3.8-27b]
+    digits: [1, 2]
+    memory: [visual_buffer, event_logging, textual_belief_state, metric_grid_map]
+    horizon: [1, -1]
+    turn_mode: turn_based
+
+  # --- glimpse-size ablation --------------------------------------------------
+  - model: [gemini-3.7-flash]
+    digits: [1, 2]
+    memory: [textual_belief_state, metric_grid_map]
+    horizon: [1]
+    box_size: [32, 128]
+    step_size: [16, 64]
+    turn_mode: turn_based
+
+  # --- natural multi-turn: full transcript, unbounded by construction ---------
+  - model: [gemini-3.7-flash]
+    digits: [1, 2]
+    memory: [event_logging, textual_belief_state]
+    horizon: [-1]
+    turn_mode: natural
+    harness: natural
+
+  # --- Antigravity harness: agent calls move/view_image/submit as MCP tools ---
+  #     A0 carries nothing between episodes, A1 keeps a persistent NOTES.md,
+  #     A2 additionally receives correctness feedback on submission.
+  - model: [gemini-3.7-flash]
+    digits: [1, 2]
+    memory: [event_logging]
+    horizon: [-1]
+    turn_mode: natural
+    harness: [mcp, native]
+    arm: [A0, A1, A2]
+
+# Axis pairs this study claims to vary independently. `mnist-pro matrix` warns only
+# about these, so a warning means a claim is unsupported rather than that some
+# ablation is deliberately partial.
+expect_crossed:
+  - [memory, horizon]
+  - [harness, arm]

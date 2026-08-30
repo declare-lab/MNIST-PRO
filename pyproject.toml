@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mnist-pro"
+version = "0.1.0"
+description = "An evaluation framework for active-glimpse visual reasoning"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "Pillow>=10.0",
+    "PyYAML>=6.0",
+    "gymnasium>=1.0",
+]
+
+[project.optional-dependencies]
+data = ["torch", "torchvision"]
+models = ["google-genai>=1.47", "openai>=1.0", "anthropic>=0.40"]
+analysis = ["matplotlib>=3.7", "pandas>=2.0"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+mnist-pro = "mnist_pro.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["mnist_pro*"]
+
+[tool.setuptools.package-data]
+mnist_pro = ["../configs/*.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
