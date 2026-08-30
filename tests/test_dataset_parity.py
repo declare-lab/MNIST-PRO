@@ -76,3 +76,25 @@ def test_build_canvas_reproduces_released_original_png(dataset, digits):
         assert np.array_equal(built, stored), (
             f"episode {released['episode_id']}: "
             f"{int((built != stored).sum())} pixels differ")
+
+
+def test_max_steps_matches_every_released_run():
+    """The step budget must equal what each released run was actually given.
+
+    Recomputing it wrongly would silently change how long agents may explore, which
+    changes coverage and therefore every downstream number.
+    """
+    import re
+
+    from mnist_pro.matrix import parse_run_dir
+    from mnist_pro.runner import default_max_steps
+
+    checked = 0
+    for name in sorted(os.listdir(LOGS)):
+        match = re.search(r"_maxsteps(\d+)_", name)
+        cell = parse_run_dir(name)
+        if not (match and cell):
+            continue
+        assert default_max_steps(cell) == int(match.group(1)), name
+        checked += 1
+    assert checked > 10, "expected to check many released runs"

@@ -23,6 +23,7 @@ backend that exhausted its retries raised and killed the whole run.
 from __future__ import annotations
 
 import json
+import math
 import os
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -55,10 +56,16 @@ def run_dir_name(cell: Cell, evalsets: int, timestamp: str) -> str:
 
 
 def default_max_steps(cell: Cell) -> int:
-    """Steps needed to sweep the canvas, scaled by its area. Matches the drivers."""
-    span_x = (cell.image_size * cell.digits - cell.box_size) // cell.step_size + 1
-    span_y = (cell.image_size - cell.box_size) // cell.step_size + 1
-    return span_x * span_y + 2
+    """Steps needed to sweep the canvas, from the original drivers verbatim.
+
+    Both drivers computed `ceil(max(0, extent - box) / step) + 1` per axis and
+    multiplied. For the published geometry this gives 36 at one digit and 78 at two,
+    which is what the released runs used.
+    """
+    width = math.ceil(max(0, cell.image_size * cell.digits - cell.box_size)
+                      / cell.step_size) + 1
+    height = math.ceil(max(0, cell.image_size - cell.box_size) / cell.step_size) + 1
+    return width * height
 
 
 def run_episode(spec: EpisodeSpec, cell: Cell, dataset, out_root: str,
