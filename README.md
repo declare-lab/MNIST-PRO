@@ -1,93 +1,192 @@
 # MNIST-PRO
 
-An evaluation framework for **active-glimpse visual reasoning**: an agent sees a
-64×64 window onto a masked MNIST canvas, moves it around, and eventually commits to
-an answer. The question the benchmark asks is not whether a model can read a digit —
-it can, at 0.97–0.98 on the unmasked canvas — but whether it can *integrate what it
-saw across turns*.
+An evaluation framework for **active-glimpse visual reasoning**. An agent sees a small
+window onto a masked MNIST canvas, moves it around one step at a time, and eventually
+commits to an answer. The benchmark measures whether a model can integrate what it saw
+across turns — not whether it can read a digit, which it can do at 0.97–0.98 on the
+unmasked canvas.
 
-This is a restructuring of the original research code, driven by twelve specific
-defects found while analysing the released logs. Each one is listed below with the
-test that now pins it.
+## Install
 
 ```bash
 pip install -e ".[dev,data,models,analysis]"
-export GEMINI_API_KEY=...          # read from the environment, never written to a file
+```
 
+Extras: `data` pulls torch/torchvision for MNIST, `models` the provider SDKs,
+`analysis` matplotlib/pandas, `dev` pytest. The core package needs only numpy,
+Pillow, PyYAML and gymnasium.
+
+API keys are read from the environment and never written to any file:
+
+```bash
+export GEMINI_API_KEY=...        # also OPENAI_API_KEY, OPENROUTER_API_KEY
+```
+
+## Quickstart
+
+Evaluate one condition:
+
+```bash
 mnist-pro run --model gemini-3.7-flash --digits 2 --memory textual_belief_state --horizon 1
-mnist-pro matrix --config configs/main_table.yaml --results-dir main_table_logs
-mnist-pro analyse --results-dir main_table_logs --csv results.csv
 ```
 
-## What changed, and why
+Summarise any directory of runs:
 
-| # | Defect in the original | Fix | Pinned by |
-|---|---|---|---|
-| 1 | `MnistActiveVisionEnv` and `MultiDigitActiveVisionEnv` were **92% textually identical** (161 / 171 lines) | one `ActiveGlimpseEnv`; `digits` is a parameter | `test_env_api.py::test_single_env_class_handles_both_levels` |
-| 2 | `evaluate.py` and `evaluate_multidigit.py` were **83% identical** (495 / 526 lines) and had drifted | one `runner.py` | — |
-| 3 | **15 agent classes** differing mostly by prompt string | one `GlimpseAgent` + four `MemorySpec` values | `test_agents.py` (22 tests) |
-| 4 | A malformed action **raised** and killed the run (9 × `raise ValueError`) | scored as `invalid_action`, episode terminates | `test_malformed_actions_are_scored_not_raised` |
-| 5 | Forced answer, parse failure and a real answer of −1 **shared the sentinel `-1`** | `truncated` for the step limit; an explicit invalid action for parse failure; no sentinel | `test_step_limit_truncates_without_inventing_an_answer` |
-| 6 | Termination reason recoverable only by matching the string `"Forced answer: maximum steps reached"` | `TerminationReason` enum in `info` | `test_env_api.py` |
-| 7 | Visited `(x, y)` **never logged** — recoverable only by replaying an md5-seeded RNG | `TrajectoryRecorder` logs windows, latency and token usage | `test_recorder_captures_windows_actions_and_usage` |
-| 8 | `tests/test_env_render.py` asserted nothing **and was stale** — it called `env.step('right')`, which raised | golden fixtures from released runs, compared byte-for-byte | `test_renderer_golden.py` (29 tests) |
-| 9 | The coverage metric — the number in the exploration table — was **untested** | `metrics.py` with both definitions | `test_metrics.py` (10 tests) |
-| 10 | Table scripts hardcoded `results_dir = "results"` and a literal model list, so `main_table_logs/` **could not be analysed by the repo's own code** | every entry point takes `--results-dir` | `test_no_hardcoded_results_path` |
-| 11 | **No Textual Belief State run at unbounded horizon exists anywhere** — horizon and memory are perfectly confounded | declarative matrix reports missing cells and unsupported claims | `test_confound_detector_catches_the_released_design` |
-| 12 | The cyan border is drawn **over** each glimpse, hiding its outer 2px, so published coverage overstates what was read by ~0.017 (L2) / 0.022 (L1) | both definitions computed and reported; `--no-border` removes the cause | `test_readable_coverage_never_exceeds_window_coverage` |
-
-## Reproducibility
-
-The renderer is pinned against real observations from the released runs. `pytest`
-re-renders each fixture from its canvas and requires a **byte-for-byte** match,
-including that the content-hashed start position lands where the original run
-started. Re-baselining requires deliberately running `tests/make_golden.py`.
-
-```
-90 passed
+```bash
+mnist-pro analyse --results-dir results --csv results.csv
 ```
 
-## The environment
+Check the study against its declared design:
 
-Gymnasium's API, so the wrappers do the bookkeeping the original had to remember:
+```bash
+mnist-pro matrix --config configs/main_table.yaml --results-dir results
+```
+
+## Concepts
+
+**Levels.** `--digits 1` is a 224×224 canvas with one digit; `--digits 2` is 448×224
+with two, answered as a left-to-right string such as `"58"`. Any digit count works —
+level is a parameter, not a fork.
+
+**Glimpse geometry.** `--box-size` is the window side (default 64) and `--step-size`
+how far one move travels (default 32). Because the step is half the box, consecutive
+glimpses overlap.
+
+**Memory configurations** — what the agent carries between turns:
+
+| `--memory` | carried |
+|---|---|
+| `visual_buffer` | images only, no textual record of its own actions |
+| `event_logging` | its prior actions |
+| `textual_belief_state` | prior actions and thoughts |
+| `metric_grid_map` | prior actions, thoughts, and a structured spatial map |
+
+**Horizon.** `--horizon` bounds how many past images stay in context; `-1` is
+unbounded. Memory configuration and horizon are independent axes.
+
+**Turn mode.** `--turn-mode turn_based` (default) re-renders a textual memory each
+turn. `--turn-mode natural` keeps the real conversation transcript, with observations
+interleaved in their own turns; it requires `--horizon -1`.
+
+## Python API
+
+The environment follows Gymnasium's interface:
 
 ```python
 from mnist_pro import CanvasSpec, make_env
 
 env = make_env(images, label="58", spec=CanvasSpec(digits=2), max_steps=78)
+
 obs, info = env.reset(seed=0)
 obs, reward, terminated, truncated, info = env.step({"action": "move", "direction": "right"})
-print(info["termination_reason"], env.record.windows)
+obs, reward, terminated, truncated, info = env.step({"action": "answer", "value": "58"})
+
+print(info["termination_reason"])   # answered | step_limit | invalid_action
+print(env.record.windows)           # every window position the agent was shown
+print(env.record.usage_totals)      # token counts for the episode
 ```
 
-`reset(seed=...)` is new. The original start was fixed per image by a content hash,
-so sensitivity to where the agent starts could not be measured at all.
+Actions are `{"action": "move", "direction": ...}` or `{"action": "answer", "value": ...}`,
+accepted as a dict or a JSON string. A malformed action ends the episode as
+`invalid_action` rather than raising, so a bad model output costs an episode, not the run.
 
-## The memory taxonomy
+`reset(seed=...)` varies the start position. With no seed the start is derived from a
+hash of the canvas, which is what the released runs used.
 
-| config | carried between turns |
-|---|---|
-| `visual_buffer` | images only, no text record |
-| `event_logging` | prior actions |
-| `textual_belief_state` | prior actions and thoughts |
-| `metric_grid_map` | prior actions, thoughts and a structured spatial map |
+Wrappers do the bookkeeping:
 
-`horizon` bounds the images retained (`-1` is unbounded). Prompt text is carried over
-verbatim from the original classes and asserted in tests, so new runs stay comparable
-with published ones.
+```python
+from mnist_pro import ActiveGlimpseEnv, TimeLimit, TrajectoryRecorder
+
+env = TrajectoryRecorder(TimeLimit(ActiveGlimpseEnv(images, label), max_steps=36))
+```
+
+`TimeLimit` reports the step limit through `truncated`, without inventing an answer.
+`TrajectoryRecorder` logs window positions, actions, rewards, per-step latency and
+token usage; `env.record.to_dict()` is what lands in `trajectory.json`.
+
+Agents:
+
+```python
+from mnist_pro import AgentConfig, GlimpseAgent
+from mnist_pro.backends import get_backend
+
+agent = GlimpseAgent(get_backend("gemini-3.7-flash"),
+                     AgentConfig(memory="textual_belief_state", digits=2, horizon=1))
+action, raw_response, usage = agent.act(obs)
+raw, prediction, usage = agent.predict_full_image(canvas_image)   # unmasked control
+```
+
+## Coverage metrics
+
+`stroke_coverage` has two definitions, and runs report both:
+
+```python
+from mnist_pro.metrics import exploration_stats
+exploration_stats(canvas, windows, spec)
+# stroke_coverage           union of the full glimpse windows
+# stroke_coverage_readable  the same, minus the 2px ring the window outline covers
+# border_occlusion          the difference
+```
+
+The outline is drawn *over* each glimpse, so the outer two pixels were never legible.
+The gap is about 0.017 at two digits and 0.022 at one. Pass `--no-border` to remove the
+cause entirely, at the price of comparability with runs that had it.
+
+## Run outputs
+
+```
+results/<run-name>/
+  run_config.json         the exact condition; nothing is recovered by parsing a name
+  results_summary.json    metrics and one entry per episode
+  episode_<i>/
+    original.png          the unmasked canvas
+    step_<n>.png          every observation the agent was shown
+    trajectory.json       windows, actions, rewards, latency, usage, termination reason
+    response_<n>.json     the raw model response, saved before anything parses it
+```
+
+## The evaluation matrix
+
+`configs/main_table.yaml` declares the conditions the study intends to cover, as a
+cross-product. `mnist-pro matrix` reports which exist, which are missing, and which
+axes the config claims to vary independently but does not:
+
+```
+declared cells: 168    runs found: 51
+PRESENT (51) ... MISSING (117)
+CONFOUNDS
+  ! harness and arm are not fully crossed: 8 of 12 combinations declared
+```
+
+`expect_crossed:` lists the axis pairs that must be fully crossed, so a warning means
+a claim is unsupported rather than that some ablation is deliberately partial.
+
+Directory names from earlier versions are parsed automatically, so existing logs can
+be analysed without conversion.
 
 ## Tool-use harnesses
 
-`mnist_pro/harness/` vendors the working Antigravity implementation: an MCP server
-exposing `move` / `view_image` / `submit`, plus the controllers and preflight checks
-that produced the released six-arm results. Arms `A0` / `A1` / `A2` are a
-cross-episode axis — nothing carried, persistent notes, notes plus correctness
-feedback.
+`mnist_pro/harness/` holds the MCP server and Antigravity controllers, where the agent
+calls `move` / `view_image` / `submit` as tools instead of emitting JSON. Arms `A0`,
+`A1` and `A2` vary what carries *between* episodes: nothing, a persistent `NOTES.md`,
+or notes plus a correctness receipt.
 
-**Harness results belong in their own table.** A tool-use harness brings its own
-scaffolding, so "memory" is no longer controlled, and merging those numbers into the
-memory-taxonomy table would void the axis that table is built on. See
+Harness results belong in their own table — a harness supplies its own context
+management, so memory is no longer the controlled variable. See
 [docs/harness.md](docs/harness.md).
+
+## Tests
+
+```bash
+pytest
+```
+
+94 tests. The renderer is pinned byte-for-byte against real observations from released
+runs, and — when MNIST and a log directory are present — canvas construction and
+episode sampling are checked against them too, so a refactor cannot silently change
+what is being measured. `tests/make_golden.py` re-baselines the fixtures; that is a
+deliberate act, not a side effect.
 
 ## Layout
 
@@ -96,13 +195,16 @@ mnist_pro/
   env.py          ActiveGlimpseEnv, TerminationReason
   rendering.py    canvas construction and observation rendering
   wrappers.py     TimeLimit, TrajectoryRecorder
-  metrics.py      coverage, both definitions
+  metrics.py      coverage and exploration statistics
   agents/         one agent, four declarative memory specs
-  backends.py     Gemini / OpenAI / OpenRouter / Vertex, with usage accounting
-  matrix.py       declarative run matrix, gap and confound reporting
-  runner.py       the single evaluation driver
-  analysis.py     result loading and tables, for any results directory
-  harness/        vendored MCP + Antigravity controllers
-configs/main_table.yaml
-tests/            90 tests, golden fixtures from released runs
+  backends.py     Gemini, OpenAI, OpenRouter, Vertex
+  dataset.py      deterministic episode sampling
+  matrix.py       declarative run matrix
+  runner.py       the evaluation driver
+  analysis.py     result loading and tables
+  harness/        MCP server and tool-use controllers
+configs/          the declared evaluation matrix
+docs/             harness and migration notes
 ```
+
+Migrating from the pre-`mnist_pro` layout: [docs/migration.md](docs/migration.md).
