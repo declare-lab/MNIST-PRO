@@ -47,6 +47,24 @@ def cmd_matrix(args):
     return 1 if st["missing"] else 0
 
 
+def cmd_harness(args):
+    """Report which harnesses can run here, and what is missing where they cannot."""
+    from .harness.registry import HARNESSES, availability_report
+    for report in availability_report():
+        spec = HARNESSES[report["name"]]
+        state = "available" if report["available"] else "unavailable"
+        print(f"{spec.name:<14} {spec.family:<10} {state}")
+        print(f"  {spec.description}")
+        print(f"  memory controlled: {'yes' if spec.controls_memory else 'no'}"
+              f"   arms: {'yes' if spec.supports_arms else 'no'}")
+        for missing in report["missing"]:
+            print(f"  missing: {missing}")
+        if report["missing"] and spec.install_hint:
+            print(f"  hint: {spec.install_hint}")
+        print()
+    return 0
+
+
 def cmd_analyse(args):
     results = load_results(args.results_dir)
     if not results:
@@ -73,9 +91,11 @@ def build_parser():
     r.add_argument("--model", required=True)
     r.add_argument("--digits", type=int, default=1)
     r.add_argument("--memory", default="textual_belief_state")
-    r.add_argument("--horizon", type=int, default=1)
-    r.add_argument("--turn-mode", default="turn_based", dest="turn_mode")
-    r.add_argument("--harness", default="turn_based")
+    r.add_argument("--horizon", type=int, default=-1)
+    r.add_argument("--turn-mode", default="natural", dest="turn_mode",
+                   choices=["natural", "turn_based"])
+    r.add_argument("--harness", default="natural",
+                   help="natural | turn_based | mcp | antigravity | claude_code | deepseek")
     r.add_argument("--arm", default="A0")
     r.add_argument("--box-size", type=int, default=64, dest="box_size")
     r.add_argument("--step-size", type=int, default=32, dest="step_size")
@@ -95,6 +115,9 @@ def build_parser():
     m.add_argument("--config", default="configs/main_table.yaml")
     m.add_argument("--results-dir", default="results", dest="results_dir")
     m.set_defaults(func=cmd_matrix)
+
+    h = sub.add_parser("harness", help="list harnesses and whether they can run here")
+    h.set_defaults(func=cmd_harness)
 
     a = sub.add_parser("analyse", help="summarise any results directory")
     a.add_argument("--results-dir", default="results", dest="results_dir")

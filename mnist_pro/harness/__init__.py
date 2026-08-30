@@ -25,5 +25,18 @@ tool-use harness supplies its own scaffolding, so what is held constant differs 
 the turn-based arm.
 """
 
+from .mcp_client import MCPStdioClient, ToolResult
+from .protocol import EpisodeController, Mailbox, sign, verify
+from .registry import (HARNESSES, IN_PROCESS, TOOL_USE, HarnessSpec,
+                       availability_report, external_command, get)
+from .session import MCPEpisode, write_mcp_config
+from .tool_agent import OpenAIToolAgent, to_openai_tools
+
 HARNESS_TOOLS = ("move", "view_image", "submit")
 ARMS = ("A0", "A1", "A2")
+
+__all__ = ["ARMS", "EpisodeController", "HARNESSES", "HARNESS_TOOLS", "HarnessSpec",
+           "IN_PROCESS", "MCPEpisode", "MCPStdioClient", "Mailbox",
+           "OpenAIToolAgent", "TOOL_USE", "ToolResult", "availability_report",
+           "external_command", "get", "sign", "to_openai_tools", "verify",
+           "write_mcp_config"]

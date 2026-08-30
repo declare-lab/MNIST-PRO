@@ -37,10 +37,12 @@ def test_config_crosses_horizon_with_every_memory_config():
 def test_confound_detector_catches_the_released_design():
     """Reproduce the released matrix and confirm it is flagged."""
     released = [
-        Cell(model="gemini-3.7-flash", digits=d, memory="event_logging", horizon=-1)
+        Cell(model="gemini-3.7-flash", digits=d, memory="event_logging", horizon=-1,
+             turn_mode="turn_based", harness="turn_based")
         for d in (1, 2)
     ] + [
-        Cell(model="gemini-3.7-flash", digits=d, memory=m, horizon=1)
+        Cell(model="gemini-3.7-flash", digits=d, memory=m, horizon=1,
+             turn_mode="turn_based", harness="turn_based")
         for d in (1, 2) for m in ("textual_belief_state", "metric_grid_map")
     ]
     warns = confounds(released)
@@ -48,7 +50,8 @@ def test_confound_detector_catches_the_released_design():
 
 
 def test_confound_detector_is_quiet_on_a_crossed_design():
-    crossed = [Cell(model="m", memory=mem, horizon=h)
+    crossed = [Cell(model="m", memory=mem, horizon=h, turn_mode="turn_based",
+                    harness="turn_based")
                for mem in ("event_logging", "textual_belief_state")
                for h in (1, -1)]
     assert not [w for w in confounds(crossed) if "memory and horizon" in w]
@@ -57,7 +60,8 @@ def test_confound_detector_is_quiet_on_a_crossed_design():
 @pytest.mark.parametrize("name,expected", [
     ("gemini-3.7-flash_img224_box64_step32_maxsteps36_seed42"
      "_MemoryVisionAgent_hist1_evalsets10_20260824_110242",
-     dict(model="gemini-3.7-flash", digits=1, memory="textual_belief_state", horizon=1)),
+     dict(model="gemini-3.7-flash", digits=1, memory="textual_belief_state",
+          horizon=1, harness="turn_based")),
     ("multidigit_2_gemini-3.7-flash_img224_box64_step32_maxsteps78_seed42"
      "_MultiDigitDefaultVisionAgent_hist-1_evalsets10_20260824_111931",
      dict(model="gemini-3.7-flash", digits=2, memory="event_logging", horizon=-1)),
@@ -80,8 +84,10 @@ def test_status_reports_present_and_missing(tmp_path):
     (run / "results_summary.json").write_text(json.dumps(
         {"metrics": {"accuracy": 0.54}, "episodes": [{"episode_id": 0}]}))
 
-    matrix = [Cell(model="gemini-3.7-flash", memory="textual_belief_state", horizon=1),
-              Cell(model="gemini-3.7-flash", memory="textual_belief_state", horizon=-1)]
+    matrix = [Cell(model="gemini-3.7-flash", memory="textual_belief_state", horizon=1,
+                   turn_mode="turn_based", harness="turn_based"),
+              Cell(model="gemini-3.7-flash", memory="textual_belief_state", horizon=-1,
+                   turn_mode="turn_based", harness="turn_based")]
     st = status(matrix, str(tmp_path))
     assert len(st["present"]) == 1
     assert len(st["missing"]) == 1

@@ -31,10 +31,10 @@ RUN_DIR_RE = re.compile(
     r"_evalsets(?P<evalsets>\d+)_(?P<timestamp>\d{8}_\d{6})$")
 
 
-# How the agent is driven. `turn_based` and `natural` are the in-repo prompt loops;
-# `mcp` and `native` are the Antigravity harnesses under mnist_pro/harness, where the
-# agent calls move/view_image/submit as tools instead of emitting JSON text.
-HARNESSES = ("turn_based", "natural", "mcp", "native")
+# How the agent is driven. Sourced from the harness registry so the two cannot drift.
+from .harness.registry import HARNESSES as _HARNESS_SPECS
+
+HARNESSES = tuple(_HARNESS_SPECS)
 
 # Cross-episode learning condition, from the Antigravity suite. Orthogonal to the
 # within-episode memory taxonomy: A0 carries nothing between episodes, A1 carries a
@@ -49,9 +49,9 @@ class Cell:
     model: str
     digits: int = 1
     memory: str = "textual_belief_state"
-    horizon: int = 1
-    turn_mode: str = "turn_based"
-    harness: str = "turn_based"
+    horizon: int = -1
+    turn_mode: str = "natural"
+    harness: str = "natural"
     arm: str = "A0"
     box_size: int = 64
     step_size: int = 32
@@ -139,8 +139,12 @@ def parse_run_dir(name: str) -> Cell | None:
         return None
     memory, digits, turn_mode = LEGACY_CLASSES[agent]
     declared = m.group("digits")
+    # A legacy directory records no harness, but the agent class implies it: those
+    # runs were driven by the framework's own loop, so harness == turn mode. Without
+    # this they would inherit the new default and stop matching their own cells.
     return Cell(model=m.group("model"), digits=int(declared) if declared else digits,
                 memory=memory, horizon=int(m.group("hist")), turn_mode=turn_mode,
+                harness=turn_mode,
                 box_size=int(m.group("box")), step_size=int(m.group("step")),
                 image_size=int(m.group("image_size")), seed=int(m.group("seed")))
 

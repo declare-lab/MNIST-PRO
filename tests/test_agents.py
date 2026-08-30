@@ -31,6 +31,20 @@ def obs():
     return Image.new("RGB", (224, 224), (128, 128, 128))
 
 
+def test_default_is_multi_turn_natural_conversation():
+    """The benchmark is about integrating glimpses across real turns, so that is the
+    default. Turn-based re-rendering is the opt-in, and is what the earlier published
+    runs used."""
+    cfg = AgentConfig().resolve()
+    assert cfg.turn_mode == "natural"
+    assert cfg.horizon == -1, "natural conversation keeps the whole transcript"
+
+
+def test_turn_based_still_defaults_its_horizon_per_memory_config():
+    assert AgentConfig(turn_mode="turn_based", memory="event_logging").resolve().horizon == 1
+    assert AgentConfig(turn_mode="turn_based", memory="visual_buffer").resolve().horizon == 4
+
+
 def test_four_memory_configs_exist():
     assert set(MEMORY_SPECS) == {"visual_buffer", "event_logging",
                                  "textual_belief_state", "metric_grid_map"}
@@ -78,13 +92,13 @@ def test_metric_grid_map_asks_for_a_spatial_map():
 
 def test_visual_buffer_shows_no_text_memory():
     """Sensory memory relied purely on the image buffer; render_memory returned ''."""
-    agent = GlimpseAgent(FakeBackend([]), AgentConfig(memory="visual_buffer"))
+    agent = GlimpseAgent(FakeBackend([]), AgentConfig(memory="visual_buffer", turn_mode="turn_based"))
     agent.full_history = [{"type": "model_output", "content": [{"text": "x"}]}]
     assert agent.render_memory() == ""
 
 
 def test_other_configs_replay_prior_outputs():
-    agent = GlimpseAgent(FakeBackend([]), AgentConfig(memory="event_logging"))
+    agent = GlimpseAgent(FakeBackend([]), AgentConfig(memory="event_logging", turn_mode="turn_based"))
     assert agent.render_memory() == "This is the first turn. No previous actions."
     agent.full_history = [{"type": "model_output", "content": [{"text": "did a thing"}]}]
     memory = agent.render_memory()
@@ -94,7 +108,7 @@ def test_other_configs_replay_prior_outputs():
 
 def test_horizon_bounds_the_number_of_images_sent():
     backend = FakeBackend(['{"action": "move", "direction": "up"}'] * 3)
-    agent = GlimpseAgent(backend, AgentConfig(memory="event_logging", horizon=1))
+    agent = GlimpseAgent(backend, AgentConfig(memory="event_logging", horizon=1, turn_mode="turn_based"))
     for _ in range(3):
         agent.act(obs())
     images = [p for p in backend.calls[-1]["contents"][0]["content"]
@@ -104,7 +118,7 @@ def test_horizon_bounds_the_number_of_images_sent():
 
 def test_unbounded_horizon_sends_every_image():
     backend = FakeBackend(['{"action": "move", "direction": "up"}'] * 3)
-    agent = GlimpseAgent(backend, AgentConfig(memory="event_logging", horizon=-1))
+    agent = GlimpseAgent(backend, AgentConfig(memory="event_logging", horizon=-1, turn_mode="turn_based"))
     for _ in range(3):
         agent.act(obs())
     images = [p for p in backend.calls[-1]["contents"][0]["content"]
@@ -117,7 +131,7 @@ def test_parse_failure_returns_an_explicit_invalid_action():
     could not distinguish from a real answer of -1 or from a forced answer at the
     step limit."""
     backend = FakeBackend(["no json here"] * 3)
-    agent = GlimpseAgent(backend, AgentConfig(memory="event_logging"))
+    agent = GlimpseAgent(backend, AgentConfig(memory="event_logging", turn_mode="turn_based"))
     action, raw, _ = agent.act(obs())
     assert action == INVALID_ACTION
     assert action["action"] == "invalid"
@@ -128,7 +142,7 @@ def test_parse_failure_returns_an_explicit_invalid_action():
 def test_out_of_steps_warning_is_appended_at_the_limit():
     backend = FakeBackend(['{"action": "answer", "value": 3}'])
     agent = GlimpseAgent(backend, AgentConfig(memory="textual_belief_state",
-                                              max_steps=1))
+                                              turn_mode="turn_based", max_steps=1))
     agent.act(obs())
     text = backend.calls[0]["contents"][0]["content"][0]["text"]
     assert "You have run out of steps" in text

@@ -4,6 +4,21 @@ The default evaluation is turn-based: the agent is shown an observation and emit
 JSON action, which the framework parses. `mnist_pro.harness` adds a second mode where
 the agent calls tools instead — `move`, `view_image`, `submit` — over MCP.
 
+## Running one
+
+```python
+from mnist_pro.harness import MCPEpisode
+
+with MCPEpisode(images, label="58", digits=2, arm="A2") as episode:
+    episode.client.move("right")
+    episode.client.submit("58")
+    print(episode.audit())
+```
+
+`mnist-pro harness` lists every harness and whether it can run on this machine.
+`mcp` needs nothing external; `claude_code` needs `claude` on PATH; `deepseek` needs
+`DEEPSEEK_API_KEY`; `antigravity` needs CCPA/BYOK credentials.
+
 ## What the MCP server does and does not know
 
 `ag_mcp_server.py` is a stdio JSON-RPC server. It holds **no label, no schedule and no
@@ -15,6 +30,24 @@ derived server-side, so an agent cannot read the answer out of the harness.
 Tools are annotated (`readOnlyHint`, `destructiveHint`, `idempotentHint`,
 `openWorldHint`), the protocol version is negotiated, and image payloads are checked
 for the PNG signature and capped at 4 MB.
+
+## Isolation constraints
+
+These are the constraints the original Codex/Antigravity setup enforced, and every
+one is tested from the agent's side in `tests/test_harness_isolation.py`:
+
+| constraint | why | enforced by |
+|---|---|---|
+| the server never receives the label, schedule or coordinates | the answer must only be obtainable from pixels | `EpisodeController` holds them; only four env vars cross the boundary |
+| requests are HMAC-SHA256 signed over a canonical serialisation | a forged or replayed request must not reach the environment | `protocol.verify`, constant-time |
+| observations use opaque `secrets.token_hex(16)` names | sequential names would reveal step index, count and ordering | `EpisodeController._write_observation` |
+| `view_image` is confined to the workspace | no reading the unmasked canvas, the trajectory, or anything else | server-side path validation: absolute, in-tree, no traversal, `O_NOFOLLOW` |
+| the workspace contains only observations | the mailbox and auth token must not be enumerable by the agent | `MCPEpisode` puts them beside the workspace, not inside |
+| only arm A2 learns correctness | A0 and A1 must not distinguish a right answer from a wrong one | `EpisodeController._submit` |
+| every exposure is recorded by digest | a run can be audited for what was actually made readable | `EpisodeController.audit()` |
+
+`audit()` cross-checks what the controller exposed against what the server reported
+delivering. Any delivery whose digest was never exposed is a protocol violation.
 
 ## Arms
 

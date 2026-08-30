@@ -64,9 +64,26 @@ glimpses overlap.
 **Horizon.** `--horizon` bounds how many past images stay in context; `-1` is
 unbounded. Memory configuration and horizon are independent axes.
 
-**Turn mode.** `--turn-mode turn_based` (default) re-renders a textual memory each
-turn. `--turn-mode natural` keeps the real conversation transcript, with observations
-interleaved in their own turns; it requires `--horizon -1`.
+**Turn mode.** `--turn-mode natural` is the **default**: the real conversation
+transcript is kept, with observations interleaved in their own turns and the model's
+outputs between them. It implies `--horizon -1`, since the transcript is complete by
+construction. `--turn-mode turn_based --horizon 1` re-renders a textual summary of
+past actions each turn instead, and is what the earlier published runs used.
+
+**Harness.** How the agent is driven. `mnist-pro harness` lists what can run here.
+
+| `--harness` | family | memory controlled | needs |
+|---|---|---|---|
+| `natural` (default) | in-process | yes | nothing |
+| `turn_based` | in-process | yes | nothing |
+| `mcp` | tool use | no | nothing — built-in MCP client |
+| `antigravity` | tool use | no | Antigravity CCPA/BYOK credentials |
+| `claude_code` | tool use | no | `claude` on PATH |
+| `deepseek` | tool use | no | `DEEPSEEK_API_KEY` |
+
+In-process harnesses parse the model's JSON. Tool-use harnesses give it `move`,
+`view_image` and `submit` over MCP, so there is no response parsing to fail — and no
+controlled memory, which is why those cells are reported separately.
 
 ## Python API
 
@@ -167,10 +184,33 @@ be analysed without conversion.
 
 ## Tool-use harnesses
 
-`mnist_pro/harness/` holds the MCP server and Antigravity controllers, where the agent
-calls `move` / `view_image` / `submit` as tools instead of emitting JSON. Arms `A0`,
-`A1` and `A2` vary what carries *between* episodes: nothing, a persistent `NOTES.md`,
-or notes plus a correctness receipt.
+The agent calls tools instead of emitting JSON:
+
+```python
+from mnist_pro.harness import MCPEpisode
+
+with MCPEpisode(images, label="58", digits=2, arm="A2") as episode:
+    episode.client.move("right")
+    episode.client.submit("58")
+    print(episode.audit())      # what was exposed, what was delivered
+```
+
+An external runtime is pointed at the same server using the config the episode writes:
+
+```bash
+claude --mcp-config "$EPISODE/mcp.json"        --allowed-tools mcp__activeglimpse__move,mcp__activeglimpse__view_image,mcp__activeglimpse__submit
+```
+
+Arms `A0`, `A1` and `A2` vary what carries *between* episodes: nothing, a persistent
+`NOTES.md`, or notes plus a correctness receipt.
+
+**Isolation.** The server holds no label, schedule or coordinates. It reaches the
+environment only through an HMAC-signed file mailbox, observations are exposed under
+opaque `secrets.token_hex(16)` names so filenames reveal no step index or ordering,
+`view_image` is confined to a workspace containing nothing but observations, and the
+mailbox and auth token live outside it. Only arm A2 is told whether a submission was
+correct. `tests/test_harness_isolation.py` attacks each of these from the agent's
+side — forged signatures, path traversal, symlinks, feedback entitlement.
 
 Harness results belong in their own table — a harness supplies its own context
 management, so memory is no longer the controlled variable. See
@@ -182,11 +222,13 @@ management, so memory is no longer the controlled variable. See
 pytest
 ```
 
-94 tests. The renderer is pinned byte-for-byte against real observations from released
-runs, and — when MNIST and a log directory are present — canvas construction and
-episode sampling are checked against them too, so a refactor cannot silently change
-what is being measured. `tests/make_golden.py` re-baselines the fixtures; that is a
-deliberate act, not a side effect.
+164 tests, no provider contacted. The renderer is pinned byte-for-byte against real
+observations from released runs, and — when MNIST and a log directory are present —
+canvas construction and episode sampling are checked against them too, so a refactor
+cannot silently change what is being measured. The MCP server is spawned as a real
+subprocess and driven over stdio JSON-RPC, so the harness tests exercise the actual
+protocol rather than a stand-in. `tests/make_golden.py` re-baselines the fixtures;
+that is a deliberate act, not a side effect.
 
 ## Layout
 
@@ -202,7 +244,14 @@ mnist_pro/
   matrix.py       declarative run matrix
   runner.py       the evaluation driver
   analysis.py     result loading and tables
-  harness/        MCP server and tool-use controllers
+  harness/
+    ag_mcp_server.py   stdio MCP server: move / view_image / submit
+    protocol.py        controller side of the HMAC-signed episode mailbox
+    mcp_client.py      minimal MCP stdio client
+    session.py         MCPEpisode: env + controller + server together
+    tool_agent.py      tool-calling loop for OpenAI-compatible providers
+    registry.py        harness descriptors and availability
+    *_controller.py    vendored Antigravity controllers
 configs/          the declared evaluation matrix
 docs/             harness and migration notes
 ```

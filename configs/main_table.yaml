@@ -14,7 +14,8 @@ defaults:
   arm: A0
 
 matrix:
-  # --- main table: memory taxonomy x horizon x level -------------------------
+  # --- main table: memory taxonomy x horizon x level, turn-based --------------
+  #     Reproduces the earlier published runs, which used the turn-based loop.
   - model: [gemini-3.7-flash, gemini-3.6-flash, gemini-3.1-pro-preview,
             claude-opus-5, claude-sonnet-5, claude-fable-5,
             gpt-5.6, glm-4.6v, qwen3.8-27b]
@@ -32,23 +33,25 @@ matrix:
     step_size: [16, 64]
     turn_mode: turn_based
 
-  # --- natural multi-turn: full transcript, unbounded by construction ---------
-  - model: [gemini-3.7-flash]
+  # --- natural multi-turn: the default. Full transcript, unbounded by design ---
+  - model: [gemini-3.7-flash, claude-opus-5, gpt-5.6, deepseek-chat]
     digits: [1, 2]
     memory: [event_logging, textual_belief_state]
     horizon: [-1]
     turn_mode: natural
     harness: natural
 
-  # --- Antigravity harness: agent calls move/view_image/submit as MCP tools ---
+  # --- tool-use harnesses: the agent calls move/view_image/submit over MCP -----
   #     A0 carries nothing between episodes, A1 keeps a persistent NOTES.md,
   #     A2 additionally receives correctness feedback on submission.
-  - model: [gemini-3.7-flash]
+  #     Memory is NOT controlled here -- these cells are reported separately.
+  #     See docs/harness.md.
+  - model: [gemini-3.7-flash, deepseek-chat]
     digits: [1, 2]
     memory: [event_logging]
     horizon: [-1]
     turn_mode: natural
-    harness: [mcp, native]
+    harness: [mcp, antigravity, claude_code, deepseek]
     arm: [A0, A1, A2]
 
 # Axis pairs this study claims to vary independently. `mnist-pro matrix` warns only

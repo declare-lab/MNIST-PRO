@@ -58,10 +58,19 @@ def encode_png(image: Image.Image) -> str:
 
 @dataclass
 class AgentConfig:
+    """Defaults to multi-turn natural conversation.
+
+    That is the setting the benchmark is about: observations stay in their own turns
+    and the model's own outputs stay between them, which is how an agent actually
+    experiences a sequence of glimpses. `turn_mode="turn_based"` re-renders a textual
+    summary of past actions each turn instead, and is what the earlier published runs
+    used -- reproduce them with `turn_mode="turn_based", horizon=1`.
+    """
+
     memory: str = "textual_belief_state"
     digits: int = 1
     horizon: int | None = None          # images retained; -1 or None = unbounded
-    turn_mode: str = "turn_based"
+    turn_mode: str = "natural"
     max_steps: int = 36
     max_attempts: int = 3
 
@@ -72,7 +81,9 @@ class AgentConfig:
         if self.turn_mode not in TURN_MODES:
             raise ValueError(f"unknown turn mode {self.turn_mode!r}")
         if self.horizon is None:
-            self.horizon = MEMORY_SPECS[self.memory].default_horizon
+            # Natural conversation keeps the whole transcript by construction.
+            self.horizon = (-1 if self.turn_mode == "natural"
+                            else MEMORY_SPECS[self.memory].default_horizon)
         if self.turn_mode == "natural" and self.horizon != -1:
             raise ValueError(
                 "natural conversation preserves the complete transcript; "

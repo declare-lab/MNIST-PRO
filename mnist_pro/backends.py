@@ -132,6 +132,31 @@ class GCPBackend:
         return _retry(call, "GCPBackend")
 
 
+class DeepSeekBackend:
+    """DeepSeek through its OpenAI-compatible endpoint."""
+
+    def __init__(self, model_name="deepseek-chat",
+                 base_url="https://api.deepseek.com/v1"):
+        from openai import OpenAI
+        key = os.environ.get("DEEPSEEK_API_KEY")
+        if not key:
+            raise BackendError("DEEPSEEK_API_KEY is not set in the environment")
+        self.model_name = model_name
+        self.client = OpenAI(base_url=base_url, api_key=key)
+
+    def generate(self, system_instruction, contents):
+        messages = to_openai_messages(system_instruction, contents)
+
+        def call():
+            resp = self.client.chat.completions.create(model=self.model_name,
+                                                       messages=messages)
+            text = ""
+            if resp.choices:
+                text = (resp.choices[0].message.content or "").strip()
+            return text, _usage_from(resp)
+        return _retry(call, "DeepSeekBackend")
+
+
 class OpenAIBackend:
     def __init__(self, model_name="gpt-5.6"):
         from openai import OpenAI
@@ -212,6 +237,8 @@ def get_backend(model_name: str | None, **kwargs):
         return GCPBackend(model_name=model_name)
     if model_name == "gpt-5.6":
         return OpenAIBackend(model_name="gpt-5.6-terra-fast-test")
+    if lowered.startswith("deepseek"):
+        return DeepSeekBackend(model_name=model_name)
     if model_name == "glm-4.6v":
         return OpenRouterBackend(model_name="z-ai/glm-4.6v")
     if model_name == "qwen3.8-27b":

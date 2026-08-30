@@ -37,6 +37,7 @@ from .dataset import EpisodeSpec, images_for, load_mnist, sample_balanced
 from .env import TerminationReason
 from .matrix import Cell
 from .metrics import exploration_stats
+from .harness.registry import TOOL_USE as TOOL_USE_HARNESSES
 from .rendering import CanvasSpec
 from .wrappers import make_env
 
@@ -66,6 +67,62 @@ def default_max_steps(cell: Cell) -> int:
                       / cell.step_size) + 1
     height = math.ceil(max(0, cell.image_size - cell.box_size) / cell.step_size) + 1
     return width * height
+
+
+def run_mcp_episode(spec: EpisodeSpec, cell: Cell, dataset, out_root: str,
+                    max_steps: int, draw_border: bool = True,
+                    driver=None) -> dict:
+    """Run one episode through the MCP harness.
+
+    `driver` is any callable taking the live `MCPEpisode`; it defaults to the
+    built-in OpenAI-compatible tool-calling agent. Passing a scripted driver makes
+    the whole path testable without a provider.
+    """
+    from .harness.session import MCPEpisode
+
+    ep_dir = os.path.join(out_root, f"episode_{spec.episode_id}")
+    os.makedirs(ep_dir, exist_ok=True)
+    canvas_spec = CanvasSpec(digits=cell.digits, image_size=cell.image_size,
+                             box_size=cell.box_size, step_size=cell.step_size)
+    images = images_for(dataset, spec)
+
+    error, driver_result = None, None
+    with MCPEpisode(images, spec.label, spec=canvas_spec, max_steps=max_steps,
+                    arm=cell.arm, workdir=os.path.join(ep_dir, "workspace"),
+                    draw_border=draw_border) as episode:
+        Image.fromarray(episode.env.canvas).save(os.path.join(ep_dir, "original.png"))
+        try:
+            driver_result = (driver or _default_mcp_driver(cell))(episode)
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            traceback.print_exc()
+        payload = episode.to_dict()
+        record = episode.env.record
+
+    payload.update(record.to_dict())
+    payload.update({"episode_id": spec.episode_id, "indices": list(spec.indices),
+                    "harness": cell.harness, "error": error,
+                    "driver": getattr(driver_result, "__dict__", driver_result)})
+    payload.update(exploration_stats(episode.env.canvas, record.windows, canvas_spec))
+    with open(os.path.join(ep_dir, "trajectory.json"), "w") as f:
+        json.dump(payload, f, indent=2, default=str)
+    return payload
+
+
+def _default_mcp_driver(cell: Cell):
+    """The built-in tool-calling agent, bound to this cell's model."""
+    from .harness.tool_agent import OpenAIToolAgent
+
+    def driver(episode):
+        backend = get_backend(cell.model)
+        client = getattr(backend, "client", None)
+        if client is None or not hasattr(client, "chat"):
+            raise NotImplementedError(
+                f"the built-in MCP driver needs an OpenAI-compatible client; "
+                f"{cell.model!r} resolves to {type(backend).__name__}. Use an "
+                f"external runtime (see mnist_pro.harness.registry) or pass a driver.")
+        return OpenAIToolAgent(client, cell.model, digits=cell.digits).drive(episode)
+    return driver
 
 
 def run_episode(spec: EpisodeSpec, cell: Cell, dataset, out_root: str,
@@ -119,9 +176,12 @@ def run_control(spec: EpisodeSpec, cell: Cell, dataset) -> dict:
                              box_size=cell.box_size, step_size=cell.step_size)
     from .rendering import build_canvas
     canvas = build_canvas(images_for(dataset, spec), canvas_spec)
+    # The control is one stateless call, so the turn mode never comes into play --
+    # but the config still has to be internally consistent.
     agent = GlimpseAgent(backend=get_backend(cell.model),
                          config=AgentConfig(memory=cell.memory, digits=cell.digits,
-                                            horizon=cell.horizon))
+                                            horizon=cell.horizon,
+                                            turn_mode=cell.turn_mode))
     raw, value, _ = agent.predict_full_image(Image.fromarray(canvas))
     return {"episode_id": spec.episode_id, "indices": list(spec.indices),
             "label": spec.label, "control_prediction": value,
@@ -146,7 +206,9 @@ def run_cell(cell: Cell, results_dir: str, evalsets: int = 10, workers: int = 10
 
     episodes = []
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(run_episode, s, cell, dataset, out_root, max_steps,
+        episode_fn = (run_mcp_episode if cell.harness in TOOL_USE_HARNESSES
+                      else run_episode)
+        futures = {pool.submit(episode_fn, s, cell, dataset, out_root, max_steps,
                                draw_border): s for s in specs}
         for fut in as_completed(futures):
             episodes.append(fut.result())

@@ -51,7 +51,8 @@ class ScriptedBackend:
 
 @pytest.fixture
 def cell():
-    return Cell(model="fake", digits=1, memory="event_logging", horizon=1)
+    return Cell(model="fake", digits=1, memory="event_logging", horizon=1,
+                turn_mode="turn_based", harness="turn_based")
 
 
 def patch_backend(monkeypatch, script):
