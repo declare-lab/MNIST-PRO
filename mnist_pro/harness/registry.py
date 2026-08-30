@@ -63,10 +63,13 @@ MCP = HarnessSpec(
 
 ANTIGRAVITY = HarnessSpec(
     name="antigravity", family="tool_use", controls_memory=False, supports_arms=True,
-    runtime=None,
-    description="The vendored Antigravity controllers, which produced the released "
-                "six-arm results. Driven by mnist_pro/harness/native_controller.py.",
-    install_hint="Needs Antigravity CCPA/BYOK credentials; see docs/harness.md.")
+    env_vars=("GEMINI_API_KEY",),
+    description="Gemini through the Antigravity managed agent, which is how the "
+                "released six-arm results were produced. The controller posts an "
+                "interaction, the agent returns pending tool calls, and the "
+                "controller executes them through the MCP server.",
+    install_hint="export GEMINI_API_KEY=... (the released runs read it from the "
+                 "login keychain)")
 
 CLAUDE_CODE = HarnessSpec(
     name="claude_code", family="tool_use", controls_memory=False, supports_arms=True,

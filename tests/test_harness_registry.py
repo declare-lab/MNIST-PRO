@@ -208,12 +208,32 @@ def test_runner_records_a_driver_failure_without_aborting(tmp_path):
     assert (tmp_path / "episode_1" / "trajectory.json").exists()
 
 
-def test_default_mcp_driver_refuses_an_incompatible_backend(tmp_path, monkeypatch):
+def test_gemini_routes_to_the_antigravity_managed_agent(monkeypatch):
+    """Gemini is driven the way the released runs drove it, not by the OpenAI loop."""
+    seen = {}
+
+    class FakeDriver:
+        def __init__(self, **kw):
+            seen.update(kw)
+
+        def drive(self, episode):
+            return "antigravity"
+
+    import mnist_pro.harness.antigravity as ag
+    monkeypatch.setattr(ag, "AntigravityDriver", FakeDriver)
+    cell = Cell(model="gemini-3.7-flash", harness="mcp", horizon=-1, digits=2)
+    with MCPEpisode([digit_image()] * 2, "00", digits=2) as ep:
+        assert runner._default_mcp_driver(cell)(ep) == "antigravity"
+    assert seen["model"] == "gemini-3.7-flash"
+    assert seen["digits"] == 2
+
+
+def test_default_mcp_driver_refuses_a_provider_it_cannot_drive(monkeypatch):
     """Rather than silently falling back to text parsing, it says why it cannot run."""
-    cell = Cell(model="gemini-3.7-flash", harness="mcp", horizon=-1)
+    cell = Cell(model="some-other-model", harness="mcp", horizon=-1)
     monkeypatch.setattr(runner, "get_backend",
                         lambda *a, **k: SimpleNamespace(client=None))
     driver = runner._default_mcp_driver(cell)
     with MCPEpisode([digit_image()], "0", digits=1) as ep:
-        with pytest.raises(NotImplementedError, match="OpenAI-compatible"):
+        with pytest.raises(NotImplementedError, match="no MCP driver"):
             driver(ep)

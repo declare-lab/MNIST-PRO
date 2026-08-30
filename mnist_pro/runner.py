@@ -109,18 +109,32 @@ def run_mcp_episode(spec: EpisodeSpec, cell: Cell, dataset, out_root: str,
     return payload
 
 
-def _default_mcp_driver(cell: Cell):
-    """The built-in tool-calling agent, bound to this cell's model."""
+def _default_mcp_driver(cell: Cell, notes: bytes | None = None):
+    """Pick the driver that matches how this cell is meant to be run.
+
+    Gemini goes through the Antigravity managed agent, which is how the released
+    six-arm results were produced: the controller posts an interaction, the agent
+    returns pending tool calls, and the controller executes them through the MCP
+    server. Providers exposing OpenAI-style tool calling use the built-in loop.
+    Either way the calls reach the environment only through the MCP server, so the
+    isolation guarantees are identical.
+    """
+    from .harness.antigravity import AntigravityDriver
     from .harness.tool_agent import OpenAIToolAgent
 
     def driver(episode):
+        if cell.harness == "antigravity" or cell.model.startswith("gemini"):
+            return AntigravityDriver(model=cell.model, digits=cell.digits,
+                                     notes=notes).drive(episode)
         backend = get_backend(cell.model)
         client = getattr(backend, "client", None)
         if client is None or not hasattr(client, "chat"):
             raise NotImplementedError(
-                f"the built-in MCP driver needs an OpenAI-compatible client; "
-                f"{cell.model!r} resolves to {type(backend).__name__}. Use an "
-                f"external runtime (see mnist_pro.harness.registry) or pass a driver.")
+                f"no MCP driver for {cell.model!r} ({type(backend).__name__}). "
+                f"Gemini uses the Antigravity managed agent; OpenAI-compatible "
+                f"providers use the built-in tool loop. Pass driver= for anything "
+                f"else, or drive the episode from an external runtime with the "
+                f"config MCPEpisode writes.")
         return OpenAIToolAgent(client, cell.model, digits=cell.digits).drive(episode)
     return driver
 

@@ -49,6 +49,32 @@ one is tested from the agent's side in `tests/test_harness_isolation.py`:
 `audit()` cross-checks what the controller exposed against what the server reported
 delivering. Any delivery whose digest was never exposed is a protocol violation.
 
+## How Gemini is driven
+
+Gemini does not go through a generic tool-calling loop. It goes through the
+**Antigravity managed agent**, which is how the released six-arm results were
+produced:
+
+```
+controller  ──POST interaction──▶  Antigravity agent (gemini-3.7-flash)
+            ◀── pending calls ───
+            ── execute locally ──▶  MCP server ──▶ mailbox ──▶ environment
+            ──POST results───────▶  next turn
+```
+
+The controller never runs the model. It posts an interaction, receives the function
+calls the agent wants to make, executes them, and returns the results in the next
+turn. The agent's environment has networking disabled, and for arms A1 and A2 the
+persistent notes are injected as an inline source at `/workspace/NOTES.md`.
+
+Executing those calls through the MCP server rather than against the environment
+directly means the isolation guarantees below apply to this path too, not just to the
+in-process MCP client.
+
+`mnist_pro/harness/antigravity.py` carries the tool names, the per-level answer
+pattern, the `path_or_id` argument and the interaction body over from the vendored
+controller, so runs stay comparable with the released results.
+
 ## Arms
 
 Arms are a **cross-episode** axis, orthogonal to the within-episode memory taxonomy:
