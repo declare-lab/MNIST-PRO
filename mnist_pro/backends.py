@@ -10,6 +10,7 @@ DEFAULT_MAX_RETRIES = 8
 DEFAULT_BACKOFF = 2
 DEFAULT_INITIAL_DELAY = 2
 MAX_DELAY = 60
+CLAUDE_MAX_TOKENS = 8192
 
 
 class BackendError(RuntimeError):
@@ -83,18 +84,24 @@ class GeminiBackend:
         return _retry(call, "GeminiBackend")
 
     def generate_turn(self, system_instruction, contents):
-        """Return the model's own steps so a natural conversation can replay them."""
+        """Return one stateless turn and every provider-generated model step.
+
+        Natural-conversation runs replay the complete local transcript on every call.
+        ``store=False`` keeps that transcript as the sole conversation state, matching
+        the existing experiment implementation.
+        """
 
         def call():
             kwargs = {
                 "model": self.model_name,
                 "input": contents,
                 "system_instruction": system_instruction,
+                "store": False,
             }
             if self.generation_config:
                 kwargs["generation_config"] = self.generation_config
             interaction = self.client.interactions.create(**kwargs)
-            steps = [s.model_dump() for s in (interaction.steps or [])]
+            steps = [s.model_dump(mode="json") for s in (interaction.steps or [])]
             return interaction.output_text.strip(), steps
 
         return _retry(call, "GeminiBackend.generate_turn")
@@ -143,7 +150,7 @@ class GCPBackend:
         def call():
             resp = self.client.messages.create(
                 model=self.model_name,
-                max_tokens=4096,
+                max_tokens=CLAUDE_MAX_TOKENS,
                 system=system_instruction,
                 messages=messages,
             )
@@ -275,12 +282,14 @@ def to_anthropic_messages(contents):
 
 
 def get_backend(model_name: str | None, **kwargs):
-    """Unchanged routing, so existing --model values resolve identically."""
+    """Route benchmark model names to their provider clients."""
     if not model_name:
         return GeminiBackend(**kwargs)
     lowered = model_name.lower()
     if "claude" in lowered or "vertex" in lowered or "gcp" in lowered:
         return GCPBackend(model_name=model_name)
+    if model_name == "gpt-5.6":
+        return OpenAIBackend(model_name=model_name)
     if model_name == "gpt-5.6-terra":
         return OpenAIBackend(model_name="gpt-5.6-terra-fast-test")
     if lowered.startswith("deepseek"):
