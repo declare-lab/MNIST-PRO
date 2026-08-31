@@ -1,14 +1,7 @@
 """One agent, parameterised by memory configuration, digit count and turn mode.
 
-Replaces fifteen subclasses. The behaviour of each combination is identical to the
-class it replaces; what changed is that the combinations are now enumerable, so an
-incomplete evaluation matrix is visible instead of silent (see `mnist_pro.matrix`).
-
-On failure signalling: when the model cannot produce parseable JSON after
-`max_attempts`, this returns an explicit invalid action rather than fabricating an
-answer of -1. The environment scores that as `invalid_action`. Previously a parse
-failure, a forced answer at the step limit, and a genuine model answer of -1 were
-indistinguishable in the logs -- all three appeared as `value: -1`.
+When the model cannot produce parseable JSON after `max_attempts`, this returns an
+explicit invalid action rather than fabricating an answer of -1.
 """
 
 from __future__ import annotations
@@ -22,8 +15,13 @@ from typing import Any
 
 from PIL import Image
 
-from .specs import (LEGACY_CLASSES, MEMORY_SPECS, WARNING_TEMPLATE, MemorySpec,
-                    control_prompts, system_instruction)
+from .specs import (
+    MEMORY_SPECS,
+    WARNING_TEMPLATE,
+    MemorySpec,
+    control_prompts,
+    system_instruction,
+)
 
 JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
 TURN_MODES = ("turn_based", "natural")
@@ -32,13 +30,10 @@ INVALID_ACTION = {"action": "invalid", "error": "JSONDecodeError"}
 
 
 def extract_json(raw_response: str | None):
-    """Unchanged from the original, including its greediness.
+    """Extract and parse the first JSON object found in the raw response.
 
     The pattern is greedy, so a response containing a JSON example followed by an
-    answer would match across both and fail. That has never happened in the released
-    logs -- checked across 30,540 multi-brace responses -- so the behaviour is kept
-    for exact comparability, and `test_agent_parsing.py` pins the hazard so a future
-    change is a deliberate one.
+    answer would match across both and fail.
     """
     if not raw_response:
         return None
@@ -60,34 +55,39 @@ def encode_png(image: Image.Image) -> str:
 class AgentConfig:
     """Defaults to multi-turn natural conversation.
 
-    That is the setting the benchmark is about: observations stay in their own turns
-    and the model's own outputs stay between them, which is how an agent actually
-    experiences a sequence of glimpses. `turn_mode="turn_based"` re-renders a textual
-    summary of past actions each turn instead, and is what the earlier published runs
-    used -- reproduce them with `turn_mode="turn_based", horizon=1`.
+    In natural conversation mode, observations stay in their own turns and the
+    model's own outputs stay between them, which is how an agent actually experiences
+    a sequence of glimpses. `turn_mode="turn_based"` re-renders a textual summary of
+    past actions each turn instead.
     """
 
-    memory: str = "textual_belief_state"
+    memory: str = "textual_state"
     digits: int = 1
-    horizon: int | None = None          # images retained; -1 or None = unbounded
+    horizon: int | None = None  # images retained; -1 or None = unbounded
     turn_mode: str = "natural"
     max_steps: int = 36
     max_attempts: int = 3
 
     def resolve(self) -> "AgentConfig":
         if self.memory not in MEMORY_SPECS:
-            raise ValueError(f"unknown memory config {self.memory!r}; "
-                             f"expected one of {sorted(MEMORY_SPECS)}")
+            raise ValueError(
+                f"unknown memory config {self.memory!r}; "
+                f"expected one of {sorted(MEMORY_SPECS)}"
+            )
         if self.turn_mode not in TURN_MODES:
             raise ValueError(f"unknown turn mode {self.turn_mode!r}")
         if self.horizon is None:
             # Natural conversation keeps the whole transcript by construction.
-            self.horizon = (-1 if self.turn_mode == "natural"
-                            else MEMORY_SPECS[self.memory].default_horizon)
+            self.horizon = (
+                -1
+                if self.turn_mode == "natural"
+                else MEMORY_SPECS[self.memory].default_horizon
+            )
         if self.turn_mode == "natural" and self.horizon != -1:
             raise ValueError(
                 "natural conversation preserves the complete transcript; "
-                "use horizon=-1")
+                "use horizon=-1"
+            )
         return self
 
     @property
@@ -163,15 +163,23 @@ class GlimpseAgent:
 
         prompt_text = self.render_memory()
         if self.user_instruction:
-            prompt_text = (f"{self.user_instruction}\n\n{prompt_text}"
-                           if prompt_text else self.user_instruction)
+            prompt_text = (
+                f"{self.user_instruction}\n\n{prompt_text}"
+                if prompt_text
+                else self.user_instruction
+            )
         if self.steps >= self.config.max_steps:
             prompt_text = f"{prompt_text}\n\n" + WARNING_TEMPLATE.format(
-                self.config.spec.warning_example(self.config.digits))
+                self.config.spec.warning_example(self.config.digits)
+            )
 
-        contents = [{"type": "user_input",
-                     "content": [{"type": "text", "text": prompt_text}]
-                                + self._image_parts(img_b64)}]
+        contents = [
+            {
+                "type": "user_input",
+                "content": [{"type": "text", "text": prompt_text}]
+                + self._image_parts(img_b64),
+            }
+        ]
 
         raw_response, usage = "", {}
         for _ in range(self.config.max_attempts):
@@ -213,27 +221,32 @@ class GlimpseAgent:
     # --- backend plumbing ----------------------------------------------------
 
     def _generate(self, contents):
-        result = self.backend.generate(system_instruction=self.system_instruction,
-                                       contents=contents)
+        result = self.backend.generate(
+            system_instruction=self.system_instruction, contents=contents
+        )
         return _split_result(result)
 
     def _generate_turn(self, contents):
         generate_turn = getattr(self.backend, "generate_turn", None)
         if callable(generate_turn):
-            raw, steps = generate_turn(system_instruction=self.system_instruction,
-                                       contents=contents)
+            raw, steps = generate_turn(
+                system_instruction=self.system_instruction, contents=contents
+            )
             return raw, {}, (steps or [self._model_step(raw)])
         raw, usage = self._generate(contents)
         return raw, usage, [self._model_step(raw)]
 
     @staticmethod
     def _model_step(raw_response):
-        return {"type": "model_output",
-                "content": [{"type": "text", "text": raw_response}]}
+        return {
+            "type": "model_output",
+            "content": [{"type": "text", "text": raw_response}],
+        }
 
     def _remember(self, prompt_text, raw_response):
         self.full_history.append(
-            {"type": "user_input", "content": [{"type": "text", "text": prompt_text}]})
+            {"type": "user_input", "content": [{"type": "text", "text": prompt_text}]}
+        )
         self.full_history.append(self._model_step(raw_response))
 
     # --- control condition ---------------------------------------------------
@@ -245,12 +258,23 @@ class GlimpseAgent:
         main path cannot drift apart.
         """
         prompt_text, system = control_prompts(self.config.digits)
-        contents = [{"type": "user_input", "content": [
-            {"type": "text", "text": prompt_text},
-            {"type": "image", "data": encode_png(image), "mime_type": "image/png"}]}]
+        contents = [
+            {
+                "type": "user_input",
+                "content": [
+                    {"type": "text", "text": prompt_text},
+                    {
+                        "type": "image",
+                        "data": encode_png(image),
+                        "mime_type": "image/png",
+                    },
+                ],
+            }
+        ]
         try:
             raw, usage = _split_result(
-                self.backend.generate(system_instruction=system, contents=contents))
+                self.backend.generate(system_instruction=system, contents=contents)
+            )
         except Exception as exc:  # recorded, never fatal
             return f"Error: {exc}", "-1", {}
         parsed = extract_json(raw)
@@ -270,12 +294,3 @@ def _split_result(result):
     if isinstance(result, tuple) and len(result) == 2:
         return result[0], (result[1] or {})
     return result, {}
-
-
-def from_legacy_class(name: str, **overrides) -> AgentConfig:
-    """Build a config from an original class name, for reading old runs."""
-    if name not in LEGACY_CLASSES:
-        raise ValueError(f"unknown legacy agent class {name!r}")
-    memory, digits, turn_mode = LEGACY_CLASSES[name]
-    cfg = AgentConfig(memory=memory, digits=digits, turn_mode=turn_mode, **overrides)
-    return cfg.resolve()

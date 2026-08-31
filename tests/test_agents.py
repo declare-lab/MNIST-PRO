@@ -11,7 +11,7 @@ import pytest
 from PIL import Image
 
 from mnist_pro.agents import (INVALID_ACTION, AgentConfig, GlimpseAgent,
-                              MEMORY_SPECS, extract_json, from_legacy_class)
+                              MEMORY_SPECS, extract_json)
 from mnist_pro.agents.specs import control_prompts, system_instruction
 
 
@@ -41,13 +41,13 @@ def test_default_is_multi_turn_natural_conversation():
 
 
 def test_turn_based_still_defaults_its_horizon_per_memory_config():
-    assert AgentConfig(turn_mode="turn_based", memory="event_logging").resolve().horizon == 1
-    assert AgentConfig(turn_mode="turn_based", memory="visual_buffer").resolve().horizon == 4
+    assert AgentConfig(turn_mode="turn_based", memory="image_only_baseline").resolve().horizon == 1
+    assert AgentConfig(turn_mode="turn_based", memory="textual_state").resolve().horizon == 1
 
 
-def test_four_memory_configs_exist():
-    assert set(MEMORY_SPECS) == {"visual_buffer", "event_logging",
-                                 "textual_belief_state", "metric_grid_map"}
+def test_three_memory_configs_exist():
+    assert set(MEMORY_SPECS) == {"image_only_baseline",
+                                 "textual_state", "metric_grid_map"}
 
 
 def test_system_instruction_matches_original_single_digit():
@@ -76,7 +76,7 @@ def test_control_prompts_match_original():
 
 
 def test_textual_belief_asks_for_a_thought():
-    spec = MEMORY_SPECS["textual_belief_state"]
+    spec = MEMORY_SPECS["textual_state"]
     assert spec.user_instruction.endswith(
         " Include an extra key 'thought' in the JSON containing your reasoning.")
     assert spec.memory_prompt_prefix == "Previous actions and thoughts"
@@ -90,15 +90,8 @@ def test_metric_grid_map_asks_for_a_spatial_map():
         "Previous actions, thoughts, and structured spatial map")
 
 
-def test_visual_buffer_shows_no_text_memory():
-    """Sensory memory relied purely on the image buffer; render_memory returned ''."""
-    agent = GlimpseAgent(FakeBackend([]), AgentConfig(memory="visual_buffer", turn_mode="turn_based"))
-    agent.full_history = [{"type": "model_output", "content": [{"text": "x"}]}]
-    assert agent.render_memory() == ""
-
-
 def test_other_configs_replay_prior_outputs():
-    agent = GlimpseAgent(FakeBackend([]), AgentConfig(memory="event_logging", turn_mode="turn_based"))
+    agent = GlimpseAgent(FakeBackend([]), AgentConfig(memory="image_only_baseline", turn_mode="turn_based"))
     assert agent.render_memory() == "This is the first turn. No previous actions."
     agent.full_history = [{"type": "model_output", "content": [{"text": "did a thing"}]}]
     memory = agent.render_memory()
@@ -108,7 +101,7 @@ def test_other_configs_replay_prior_outputs():
 
 def test_horizon_bounds_the_number_of_images_sent():
     backend = FakeBackend(['{"action": "move", "direction": "up"}'] * 3)
-    agent = GlimpseAgent(backend, AgentConfig(memory="event_logging", horizon=1, turn_mode="turn_based"))
+    agent = GlimpseAgent(backend, AgentConfig(memory="image_only_baseline", horizon=1, turn_mode="turn_based"))
     for _ in range(3):
         agent.act(obs())
     images = [p for p in backend.calls[-1]["contents"][0]["content"]
@@ -118,7 +111,7 @@ def test_horizon_bounds_the_number_of_images_sent():
 
 def test_unbounded_horizon_sends_every_image():
     backend = FakeBackend(['{"action": "move", "direction": "up"}'] * 3)
-    agent = GlimpseAgent(backend, AgentConfig(memory="event_logging", horizon=-1, turn_mode="turn_based"))
+    agent = GlimpseAgent(backend, AgentConfig(memory="image_only_baseline", horizon=-1, turn_mode="turn_based"))
     for _ in range(3):
         agent.act(obs())
     images = [p for p in backend.calls[-1]["contents"][0]["content"]
@@ -131,7 +124,7 @@ def test_parse_failure_returns_an_explicit_invalid_action():
     could not distinguish from a real answer of -1 or from a forced answer at the
     step limit."""
     backend = FakeBackend(["no json here"] * 3)
-    agent = GlimpseAgent(backend, AgentConfig(memory="event_logging", turn_mode="turn_based"))
+    agent = GlimpseAgent(backend, AgentConfig(memory="image_only_baseline", turn_mode="turn_based"))
     action, raw, _ = agent.act(obs())
     assert action == INVALID_ACTION
     assert action["action"] == "invalid"
@@ -141,7 +134,7 @@ def test_parse_failure_returns_an_explicit_invalid_action():
 
 def test_out_of_steps_warning_is_appended_at_the_limit():
     backend = FakeBackend(['{"action": "answer", "value": 3}'])
-    agent = GlimpseAgent(backend, AgentConfig(memory="textual_belief_state",
+    agent = GlimpseAgent(backend, AgentConfig(memory="textual_state",
                                               turn_mode="turn_based", max_steps=1))
     agent.act(obs())
     text = backend.calls[0]["contents"][0]["content"][0]["text"]
@@ -157,7 +150,7 @@ def test_natural_mode_requires_unbounded_history():
 def test_natural_mode_interleaves_turns():
     backend = FakeBackend(['{"action": "move", "direction": "up"}',
                            '{"action": "answer", "value": 1}'])
-    agent = GlimpseAgent(backend, AgentConfig(memory="event_logging",
+    agent = GlimpseAgent(backend, AgentConfig(memory="image_only_baseline",
                                               turn_mode="natural", horizon=-1))
     agent.act(obs())
     agent.act(obs())
@@ -167,26 +160,6 @@ def test_natural_mode_interleaves_turns():
     assert first[0]["type"] == "text"        # instruction only on the first turn
     later = agent.full_history[2]["content"]
     assert all(p["type"] == "image" for p in later)
-
-
-@pytest.mark.parametrize("legacy,memory,digits", [
-    ("MemoryVisionAgent", "textual_belief_state", 1),
-    ("MultiDigitMemoryVisionAgent", "textual_belief_state", 2),
-    ("DefaultVisionAgent", "event_logging", 1),
-    ("MultiDigitSpatialMemoryVisionAgent", "metric_grid_map", 2),
-    ("SensoryVisionAgent", "visual_buffer", 1),
-])
-def test_legacy_class_names_resolve(legacy, memory, digits):
-    cfg = from_legacy_class(legacy)
-    assert cfg.memory == memory and cfg.digits == digits
-
-
-def test_natural_legacy_classes_resolve_to_natural_mode():
-    cfg = from_legacy_class("MultiDigitNaturalConversationMemoryVisionAgent",
-                            horizon=-1)
-    assert cfg.turn_mode == "natural"
-    assert cfg.memory == "textual_belief_state"
-    assert cfg.digits == 2
 
 
 def test_extract_json_is_unchanged_including_its_greediness():

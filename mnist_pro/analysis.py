@@ -1,10 +1,4 @@
-"""Result loading and table generation.
-
-Every entry point takes a results directory. The original table scripts hardcoded
-`results_dir = "results"` and a literal list of model names, so they could not be
-pointed at another log directory without editing the source -- which is why the
-released `main_table_logs/` could not be analysed by the repository's own scripts.
-"""
+"""Result loading and table generation."""
 
 from __future__ import annotations
 
@@ -43,9 +37,14 @@ def load_results(results_dir: str) -> list[RunResult]:
                 doc = json.load(f)
         except (json.JSONDecodeError, OSError):
             continue
-        out.append(RunResult(cell=run.cell, path=run.path,
-                             metrics=doc.get("metrics", {}),
-                             episodes=doc.get("episodes", [])))
+        out.append(
+            RunResult(
+                cell=run.cell,
+                path=run.path,
+                metrics=doc.get("metrics", {}),
+                episodes=doc.get("episodes", []),
+            )
+        )
     return out
 
 
@@ -54,25 +53,50 @@ def latest_per_cell(results: list[RunResult]) -> dict:
     best: dict = {}
     for r in results:
         key = r.cell.key()
-        if key not in best or os.path.getmtime(r.path) > os.path.getmtime(best[key].path):
+        if key not in best or os.path.getmtime(r.path) > os.path.getmtime(
+            best[key].path
+        ):
             best[key] = r
     return best
 
 
 def to_csv(results: list[RunResult], path: str) -> str:
-    fields = ["model", "digits", "memory", "horizon", "harness", "arm", "box_size",
-              "accuracy", "average_steps", "average_stroke_coverage",
-              "average_stroke_coverage_readable", "control_accuracy",
-              "total_episodes", "failed_episodes", "path"]
+    fields = [
+        "model",
+        "digits",
+        "memory",
+        "horizon",
+        "harness",
+        "arm",
+        "box_size",
+        "accuracy",
+        "average_steps",
+        "average_stroke_coverage",
+        "average_stroke_coverage_readable",
+        "control_accuracy",
+        "total_episodes",
+        "failed_episodes",
+        "path",
+    ]
     with open(path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
         w.writeheader()
         for r in results:
             row = {**r.cell.to_dict()}
-            row.update({k: r.metrics.get(k) for k in
-                        ("accuracy", "average_steps", "average_stroke_coverage",
-                         "average_stroke_coverage_readable", "control_accuracy",
-                         "total_episodes", "failed_episodes")})
+            row.update(
+                {
+                    k: r.metrics.get(k)
+                    for k in (
+                        "accuracy",
+                        "average_steps",
+                        "average_stroke_coverage",
+                        "average_stroke_coverage_readable",
+                        "control_accuracy",
+                        "total_episodes",
+                        "failed_episodes",
+                    )
+                }
+            )
             row["path"] = r.path
             w.writerow(row)
     return path
@@ -84,10 +108,17 @@ def main_table(results: list[RunResult], digits: int = 1) -> list[dict]:
     for r in latest_per_cell(results).values():
         if r.cell.digits != digits:
             continue
-        rows.append({"model": r.cell.model, "memory": r.cell.memory,
-                     "horizon": r.cell.horizon, "harness": r.cell.harness,
-                     "arm": r.cell.arm, "accuracy": r.accuracy,
-                     "average_steps": r.average_steps,
-                     "control_accuracy": r.metrics.get("control_accuracy")})
+        rows.append(
+            {
+                "model": r.cell.model,
+                "memory": r.cell.memory,
+                "horizon": r.cell.horizon,
+                "harness": r.cell.harness,
+                "arm": r.cell.arm,
+                "accuracy": r.accuracy,
+                "average_steps": r.average_steps,
+                "control_accuracy": r.metrics.get("control_accuracy"),
+            }
+        )
     rows.sort(key=lambda x: (x["model"], x["memory"], x["horizon"]))
     return rows

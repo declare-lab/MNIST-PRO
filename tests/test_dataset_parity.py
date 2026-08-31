@@ -85,14 +85,48 @@ def test_max_steps_matches_every_released_run():
     changes coverage and therefore every downstream number.
     """
     import re
-
-    from mnist_pro.matrix import parse_run_dir
+    from mnist_pro.matrix import Cell
     from mnist_pro.runner import default_max_steps
+
+    LEGACY_CLASSES = {
+        "DefaultVisionAgent": ("image_only_baseline", 1, "turn_based"),
+        "MultiDigitDefaultVisionAgent": ("image_only_baseline", 2, "turn_based"),
+        "MemoryVisionAgent": ("textual_state", 1, "turn_based"),
+        "MultiDigitMemoryVisionAgent": ("textual_state", 2, "turn_based"),
+        "SpatialMemoryVisionAgent": ("metric_grid_map", 1, "turn_based"),
+        "MultiDigitSpatialMemoryVisionAgent": ("metric_grid_map", 2, "turn_based"),
+        "NaturalConversationVisionAgent": ("image_only_baseline", 1, "natural"),
+        "MultiDigitNaturalConversationVisionAgent": ("image_only_baseline", 2, "natural"),
+        "NaturalConversationMemoryVisionAgent": ("textual_state", 1, "natural"),
+        "MultiDigitNaturalConversationMemoryVisionAgent": ("textual_state", 2, "natural"),
+    }
+
+    RUN_DIR_RE = re.compile(
+        r"^(?:multidigit_(?P<digits>\d+)_)?(?P<model>.+?)"
+        r"_img(?P<image_size>\d+)_box(?P<box>\d+)_step(?P<step>\d+)"
+        r"_maxsteps(?P<max_steps>\d+)_seed(?P<seed>\d+)"
+        r"_(?P<agent>[A-Za-z]+)_hist(?P<hist>-?\d+)"
+        r"_evalsets(?P<evalsets>\d+)_(?P<timestamp>\d{8}_\d{6})$")
+
+    def local_parse_run_dir(name):
+        m = RUN_DIR_RE.match(name)
+        if not m:
+            return None
+        agent = m.group("agent")
+        if agent not in LEGACY_CLASSES:
+            return None
+        memory, digits, turn_mode = LEGACY_CLASSES[agent]
+        declared = m.group("digits")
+        return Cell(model=m.group("model"), digits=int(declared) if declared else digits,
+                    memory=memory, horizon=int(m.group("hist")), turn_mode=turn_mode,
+                    harness=turn_mode,
+                    box_size=int(m.group("box")), step_size=int(m.group("step")),
+                    image_size=int(m.group("image_size")), seed=int(m.group("seed")))
 
     checked = 0
     for name in sorted(os.listdir(LOGS)):
         match = re.search(r"_maxsteps(\d+)_", name)
-        cell = parse_run_dir(name)
+        cell = local_parse_run_dir(name)
         if not (match and cell):
             continue
         assert default_max_steps(cell) == int(match.group(1)), name

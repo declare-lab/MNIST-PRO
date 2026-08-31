@@ -22,6 +22,7 @@ class EpisodeSpec:
 
 def load_mnist(data_dir: str = "data", train: bool = False):
     from torchvision import datasets
+
     return datasets.MNIST(root=data_dir, train=train, download=True)
 
 

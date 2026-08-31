@@ -1,16 +1,8 @@
 """Environment wrappers.
 
-These exist to make three things structural that were previously conventions the
-caller had to remember, and that the original logs therefore did not record:
-
-* the step limit (`TimeLimit`) -- previously a hand-rolled check in the eval driver
-  that injected a fake answer of -1;
-* the reason an episode ended (`TimeLimit` sets it) -- previously recoverable only by
-  matching the literal string "Forced answer: maximum steps reached" in a log field;
-* the sequence of window positions (`TrajectoryRecorder`) -- previously never logged
-  at all, and recoverable only by replaying an md5-seeded RNG from the canvas bytes.
-
-Anything wrapped here is recorded for every run, for free, forever.
+Provides structural components for managing evaluation:
+* `TimeLimit`: Enforces the episode step limit.
+* `TrajectoryRecorder`: Records window positions, actions, rewards, latencies, and token usage.
 """
 
 from __future__ import annotations
@@ -42,8 +34,7 @@ class TimeLimit(Wrapper):
     """Truncate after `max_steps` actions.
 
     Truncation is reported through `truncated=True` and
-    `info["termination_reason"] == "step_limit"`. No answer is fabricated, so an
-    episode that ran out of steps is never mistaken for one that answered wrong.
+    `info["termination_reason"] == "step_limit"`. No answer is fabricated.
     """
 
     def __init__(self, env, max_steps: int):
@@ -83,7 +74,7 @@ class StepRecord:
 @dataclass
 class EpisodeRecord:
     label: str
-    windows: list = field(default_factory=list)       # one per observation shown
+    windows: list = field(default_factory=list)  # one per observation shown
     steps: list = field(default_factory=list)
     total_reward: float = 0.0
     termination_reason: str = TerminationReason.RUNNING.value
@@ -93,8 +84,11 @@ class EpisodeRecord:
 
     @property
     def n_moves(self) -> int:
-        return sum(1 for s in self.steps
-                   if isinstance(s.action, dict) and s.action.get("action") == "move")
+        return sum(
+            1
+            for s in self.steps
+            if isinstance(s.action, dict) and s.action.get("action") == "move"
+        )
 
     @property
     def unique_windows(self) -> list:
@@ -136,10 +130,7 @@ class EpisodeRecord:
 class TrajectoryRecorder(Wrapper):
     """Record window positions, actions, rewards, timing and token usage.
 
-    `record.windows` holds the position of every observation the agent was actually
-    shown: the start, then one per move. Because an answer does not move the window,
-    that list lines up one-to-one with the observations, which is exactly the union a
-    downstream offline replay needs.
+    `record.windows` holds the position of every observation shown to the agent.
     """
 
     def __init__(self, env):
@@ -164,11 +155,21 @@ class TrajectoryRecorder(Wrapper):
         if isinstance(parsed, dict) and parsed.get("action") == "move":
             self.record.windows.append(self.env.window)
 
-        self.record.steps.append(StepRecord(
-            step=self.env.steps, window_before=before, window_after=self.env.window,
-            action=parsed, raw_response=raw_response, reward=reward,
-            terminated=terminated, truncated=truncated, info=info,
-            latency_s=round(latency, 6), usage=usage))
+        self.record.steps.append(
+            StepRecord(
+                step=self.env.steps,
+                window_before=before,
+                window_after=self.env.window,
+                action=parsed,
+                raw_response=raw_response,
+                reward=reward,
+                terminated=terminated,
+                truncated=truncated,
+                info=info,
+                latency_s=round(latency, 6),
+                usage=usage,
+            )
+        )
         self.record.total_reward += reward
         if usage:
             for k, v in usage.items():
@@ -183,14 +184,21 @@ class TrajectoryRecorder(Wrapper):
 
 def _safe_json(action):
     import json
+
     try:
         return json.loads(action)
     except Exception:
         return {"action": "<unparseable>", "raw": action}
 
 
-def make_env(images, label, spec=None, max_steps: int | None = None,
-             record: bool = True, **kwargs):
+def make_env(
+    images,
+    label,
+    spec=None,
+    max_steps: int | None = None,
+    record: bool = True,
+    **kwargs,
+):
     """Build the standard evaluation stack: env -> TimeLimit -> TrajectoryRecorder."""
     env = ActiveGlimpseEnv(images, label, spec=spec, **kwargs)
     if max_steps is not None:

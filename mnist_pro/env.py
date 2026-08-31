@@ -1,8 +1,7 @@
 """The active-glimpse environment, unified across digit counts.
 
-One class replaces the previous `MnistActiveVisionEnv` / `MultiDigitActiveVisionEnv`
-pair, which were 92% textually identical and had to be edited in parallel for every
-change. `digits=1` and `digits=2` are now the same code path.
+The environment is unified across digit counts; digits=1 and digits=2 use the same
+code path.
 
 The API is Gymnasium's:
 
@@ -12,15 +11,11 @@ The API is Gymnasium's:
 Two consequences matter for evaluation:
 
 * `truncated` marks the step limit, distinct from `terminated`, so "ran out of steps"
-  is no longer conflated with "answered wrong". The old code signalled both by
-  injecting an answer of -1, which was also the agent's JSON-parse fallback value --
-  three different failures sharing one sentinel.
+  is distinct from "answered wrong".
 * A malformed action **terminates the episode and is scored**, rather than raising.
-  The old `step()` raised `ValueError` on an unknown direction or unparseable JSON,
-  which killed the whole run instead of recording the failure.
 
 `info["termination_reason"]` is always one of `TerminationReason`, recorded
-explicitly rather than recovered later by matching a string in a log field.
+explicitly.
 """
 
 from __future__ import annotations
@@ -109,10 +104,10 @@ class ActiveGlimpseEnv(_BASE):
         return str(int(label)) if digits == 1 else str(label).strip()
 
     def _normalise_answer(self, value):
-        """Match the original comparison semantics exactly.
+        """Normalise the given answer for comparison.
 
-        One digit compared as an int (an unparseable value became -1); more than one
-        compared as a stripped string.
+        For single-digit environments, converts the value to an integer string, returning "-1"
+        if the value is unparseable. For multi-digit environments, returns the stripped string.
         """
         if self.spec.digits == 1:
             try:
@@ -126,9 +121,8 @@ class ActiveGlimpseEnv(_BASE):
     def reset(self, *, seed: int | None = None, options: dict | None = None):
         """Place the window and clear episode state.
 
-        With no seed the start is the original content-hashed position, so runs
-        reproduce. With a seed the start is drawn from it instead, which is what
-        makes start-position sensitivity measurable at all.
+        If no seed is provided, a deterministic start position is used.
+        If a seed is provided, the start position is drawn from it.
         """
         if seed is None:
             self.x, self.y = deterministic_start(self.canvas, self.spec)

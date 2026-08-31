@@ -8,8 +8,26 @@ from .rendering import CanvasSpec, build_canvas, render_composite, render_observ
 from .wrappers import TimeLimit, TrajectoryRecorder, make_env
 
 __version__ = "0.1.0"
-__all__ = ["ActiveGlimpseEnv", "AgentConfig", "ARMS", "Cell", "CanvasSpec",
-           "GlimpseAgent", "HARNESSES", "MEMORY_SPECS", "TerminationReason",
-           "TimeLimit", "TrajectoryRecorder", "build_canvas", "confounds",
-           "discover_runs", "exploration_stats", "load_matrix", "make_env",
-           "render_composite", "render_observation", "status", "stroke_coverage"]
+__all__ = [
+    "ActiveGlimpseEnv",
+    "AgentConfig",
+    "ARMS",
+    "Cell",
+    "CanvasSpec",
+    "GlimpseAgent",
+    "HARNESSES",
+    "MEMORY_SPECS",
+    "TerminationReason",
+    "TimeLimit",
+    "TrajectoryRecorder",
+    "build_canvas",
+    "confounds",
+    "discover_runs",
+    "exploration_stats",
+    "load_matrix",
+    "make_env",
+    "render_composite",
+    "render_observation",
+    "status",
+    "stroke_coverage",
+]

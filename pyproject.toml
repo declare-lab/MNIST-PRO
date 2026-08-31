@@ -18,7 +18,7 @@ dependencies = [
 
 [project.optional-dependencies]
 data = ["torch", "torchvision"]
-models = ["google-genai>=1.47", "openai>=1.0", "anthropic>=0.40"]
+models = ["google-genai>=2.0.0", "openai>=1.0", "anthropic>=0.40"]
 analysis = ["matplotlib>=3.7", "pandas>=2.0"]
 dev = ["pytest>=8.0"]
 

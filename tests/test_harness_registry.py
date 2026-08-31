@@ -174,7 +174,7 @@ def test_tool_agent_respects_the_turn_limit():
 # --- runner integration --------------------------------------------------------
 
 def test_runner_executes_an_mcp_episode(tmp_path):
-    cell = Cell(model="fake", digits=1, memory="event_logging", horizon=-1,
+    cell = Cell(model="fake", digits=1, memory="image_only_baseline", horizon=-1,
                 turn_mode="natural", harness="mcp", arm="A2")
 
     def scripted(episode):
@@ -196,7 +196,7 @@ def test_runner_executes_an_mcp_episode(tmp_path):
 
 
 def test_runner_records_a_driver_failure_without_aborting(tmp_path):
-    cell = Cell(model="fake", digits=1, memory="event_logging", horizon=-1,
+    cell = Cell(model="fake", digits=1, memory="image_only_baseline", horizon=-1,
                 turn_mode="natural", harness="mcp")
 
     def broken(episode):

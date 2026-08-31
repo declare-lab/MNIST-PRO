@@ -51,7 +51,7 @@ class ScriptedBackend:
 
 @pytest.fixture
 def cell():
-    return Cell(model="fake", digits=1, memory="event_logging", horizon=1,
+    return Cell(model="fake", digits=1, memory="image_only_baseline", horizon=1,
                 turn_mode="turn_based", harness="turn_based")
 
 
@@ -141,7 +141,7 @@ def test_run_cell_writes_config_and_summary(tmp_path, cell, monkeypatch):
                                workers=2, limit=4, with_control=False)
 
     config = json.loads(open(os.path.join(out_root, "run_config.json")).read())
-    assert config["memory"] == "event_logging" and config["max_steps"] == 36
+    assert config["memory"] == "image_only_baseline" and config["max_steps"] == 36
 
     summary = json.loads(open(os.path.join(out_root, "results_summary.json")).read())
     assert summary["metrics"]["total_episodes"] == 4
@@ -162,7 +162,7 @@ def test_run_cell_is_discoverable_by_the_matrix(tmp_path, cell, monkeypatch):
     found = discover_runs(str(tmp_path))
     assert len(found) == 1
     assert found[0].source == "run_config.json"
-    assert found[0].cell.memory == "event_logging"
+    assert found[0].cell.memory == "image_only_baseline"
 
 
 def test_control_uses_the_same_agent_as_the_main_path(monkeypatch, cell):

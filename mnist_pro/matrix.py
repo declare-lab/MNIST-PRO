@@ -1,14 +1,7 @@
 """The evaluation matrix, declared in a config and checked against what exists.
 
-The original layout had no declaration of which cells the study intended to cover, so
-gaps were invisible. One consequence, found only by inspection months later: no run of
-Textual Belief State at an unbounded horizon exists anywhere in the released logs.
-Unbounded horizon appears *only* with Event Logging, and Textual Belief State appears
-*only* at horizon 1 -- so any comparison across horizon also changes the memory
-configuration, and the two effects cannot be separated.
-
-`mnist-pro matrix status` prints exactly that, as a table of present and missing cells,
-against whichever results directory is passed. Nothing is hardcoded to `results/`.
+`mnist-pro matrix status` prints a table of present and missing cells against
+whichever results directory is passed. Nothing is hardcoded to `results/`.
 """
 
 from __future__ import annotations
@@ -21,17 +14,18 @@ from dataclasses import asdict, dataclass, field
 
 import yaml
 
-from .agents.specs import LEGACY_CLASSES, MEMORY_SPECS
+from .agents.specs import MEMORY_SPECS
 
 RUN_DIR_RE = re.compile(
     r"^(?:multidigit_(?P<digits>\d+)_)?(?P<model>.+?)"
     r"_img(?P<image_size>\d+)_box(?P<box>\d+)_step(?P<step>\d+)"
     r"_maxsteps(?P<max_steps>\d+)_seed(?P<seed>\d+)"
     r"_(?P<agent>[A-Za-z]+)_hist(?P<hist>-?\d+)"
-    r"_evalsets(?P<evalsets>\d+)_(?P<timestamp>\d{8}_\d{6})$")
+    r"_evalsets(?P<evalsets>\d+)_(?P<timestamp>\d{8}_\d{6})$"
+)
 
 
-# How the agent is driven. Sourced from the harness registry so the two cannot drift.
+# How the agent is driven, sourced from the harness registry.
 from .harness.registry import HARNESSES as _HARNESS_SPECS
 
 HARNESSES = tuple(_HARNESS_SPECS)
@@ -48,7 +42,7 @@ class Cell:
 
     model: str
     digits: int = 1
-    memory: str = "textual_belief_state"
+    memory: str = "textual_state"
     horizon: int = -1
     turn_mode: str = "natural"
     harness: str = "natural"
@@ -69,12 +63,21 @@ class Cell:
         return self.digits
 
     def key(self) -> tuple:
-        return (self.model, self.digits, self.memory, self.horizon,
-                self.harness, self.arm, self.box_size)
+        return (
+            self.model,
+            self.digits,
+            self.memory,
+            self.horizon,
+            self.harness,
+            self.arm,
+            self.box_size,
+        )
 
     def label(self) -> str:
-        return (f"L{self.digits} {self.model} {self.memory} H={self.horizon} "
-                f"{self.harness}/{self.arm} box{self.box_size}")
+        return (
+            f"L{self.digits} {self.model} {self.memory} H={self.horizon} "
+            f"{self.harness}/{self.arm} box{self.box_size}"
+        )
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -92,8 +95,7 @@ class DiscoveredRun:
 def load_expectations(path: str) -> list[tuple]:
     """Axis pairs the study intends to cross fully, from `expect_crossed:`.
 
-    Without this every partial ablation is flagged, and real confounds drown in the
-    noise. Declaring the pairs that matter makes a warning mean something.
+    This restricts checks to the pairs that matter, avoiding noise from partial ablations.
     """
     with open(path) as f:
         doc = yaml.safe_load(f) or {}
@@ -103,8 +105,7 @@ def load_expectations(path: str) -> list[tuple]:
 def load_matrix(path: str) -> list[Cell]:
     """Expand a YAML declaration into concrete cells.
 
-    Each block is a cross-product over list-valued fields, so the intended sweep is
-    written once rather than enumerated by hand.
+    Each block is a cross-product over list-valued fields.
     """
     with open(path) as f:
         doc = yaml.safe_load(f) or {}
@@ -129,28 +130,8 @@ def load_matrix(path: str) -> list[Cell]:
     return unique
 
 
-def parse_run_dir(name: str) -> Cell | None:
-    """Recover a cell from a legacy directory name."""
-    m = RUN_DIR_RE.match(name)
-    if not m:
-        return None
-    agent = m.group("agent")
-    if agent not in LEGACY_CLASSES:
-        return None
-    memory, digits, turn_mode = LEGACY_CLASSES[agent]
-    declared = m.group("digits")
-    # A legacy directory records no harness, but the agent class implies it: those
-    # runs were driven by the framework's own loop, so harness == turn mode. Without
-    # this they would inherit the new default and stop matching their own cells.
-    return Cell(model=m.group("model"), digits=int(declared) if declared else digits,
-                memory=memory, horizon=int(m.group("hist")), turn_mode=turn_mode,
-                harness=turn_mode,
-                box_size=int(m.group("box")), step_size=int(m.group("step")),
-                image_size=int(m.group("image_size")), seed=int(m.group("seed")))
-
-
 def discover_runs(results_dir: str) -> list[DiscoveredRun]:
-    """Find completed runs, preferring an explicit config over a parsed name."""
+    """Find completed runs using their run_config.json files."""
     found: list[DiscoveredRun] = []
     if not os.path.isdir(results_dir):
         return found
@@ -160,15 +141,14 @@ def discover_runs(results_dir: str) -> list[DiscoveredRun]:
             continue
         summary_path = os.path.join(path, "results_summary.json")
         config_path = os.path.join(path, "run_config.json")
-        cell, source = None, "run_config.json"
-        if os.path.exists(config_path):
+        if not os.path.exists(config_path):
+            continue
+        try:
             with open(config_path) as f:
                 cfg = json.load(f)
             known = {k: v for k, v in cfg.items() if k in Cell.__dataclass_fields__}
             cell = Cell(**known)
-        else:
-            cell, source = parse_run_dir(name), "directory name"
-        if cell is None:
+        except Exception:
             continue
         n, metrics = 0, {}
         if os.path.exists(summary_path):
@@ -179,8 +159,15 @@ def discover_runs(results_dir: str) -> list[DiscoveredRun]:
                 metrics = summary.get("metrics", {})
             except (json.JSONDecodeError, OSError):
                 pass
-        found.append(DiscoveredRun(path=path, cell=cell, n_episodes=n,
-                                   metrics=metrics, source=source))
+        found.append(
+            DiscoveredRun(
+                path=path,
+                cell=cell,
+                n_episodes=n,
+                metrics=metrics,
+                source="run_config.json",
+            )
+        )
     return found
 
 
@@ -195,31 +182,42 @@ def status(matrix: list[Cell], results_dir: str) -> dict:
         hits = by_key.get(cell.key(), [])
         (present if hits else missing).append({"cell": cell, "runs": hits})
     undeclared = [r for r in runs if r.cell.key() not in {c.key() for c in matrix}]
-    return {"present": present, "missing": missing, "undeclared": undeclared,
-            "n_declared": len(matrix), "n_runs": len(runs)}
+    return {
+        "present": present,
+        "missing": missing,
+        "undeclared": undeclared,
+        "n_declared": len(matrix),
+        "n_runs": len(runs),
+    }
 
 
 def confounds(matrix: list[Cell], expect: list[tuple] | None = None) -> list[str]:
     """Flag axes that cannot be varied independently in the declared matrix.
 
-    A pair of axes is confounded when no two declared cells differ in exactly one of
-    them. This is what would have caught the horizon / memory collision at the point
-    the study was designed, rather than after the results were written up.
+    A pair of axes is confounded when no two declared cells differ in exactly one of them.
 
     `expect` restricts the check to the pairs the study claims to cross. Passing None
     checks every pair, which is thorough but flags deliberately partial ablations too.
     """
     warnings = []
-    axes = expect or list(itertools.combinations(
-        ("memory", "horizon", "harness", "arm", "box_size"), 2))
+    axes = expect or list(
+        itertools.combinations(("memory", "horizon", "harness", "arm", "box_size"), 2)
+    )
     for a, b in axes:
         pairs = {(getattr(c, a), getattr(c, b)) for c in matrix}
         values_a = {p[0] for p in pairs}
         values_b = {p[1] for p in pairs}
-        if len(values_a) > 1 and len(values_b) > 1 and len(pairs) < len(values_a) * len(values_b):
-            got = ", ".join(f"({x}, {y})"
-                            for x, y in sorted(tuple(str(v) for v in p) for p in pairs))
+        if (
+            len(values_a) > 1
+            and len(values_b) > 1
+            and len(pairs) < len(values_a) * len(values_b)
+        ):
+            got = ", ".join(
+                f"({x}, {y})"
+                for x, y in sorted(tuple(str(v) for v in p) for p in pairs)
+            )
             warnings.append(
                 f"{a} and {b} are not fully crossed: {len(pairs)} of "
-                f"{len(values_a) * len(values_b)} combinations declared [{got}]")
+                f"{len(values_a) * len(values_b)} combinations declared [{got}]"
+            )
     return warnings

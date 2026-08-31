@@ -15,9 +15,30 @@ from mnist_pro.analysis import latest_per_cell, load_results, main_table, to_csv
 def write_run(root, name, metrics, episodes=1, config=None):
     d = os.path.join(root, name)
     os.makedirs(d, exist_ok=True)
-    if config:
-        with open(os.path.join(d, "run_config.json"), "w") as f:
-            json.dump(config, f)
+    if not config:
+        digits = 2 if ("multidigit_2" in name or "MultiDigit" in name) else 1
+        memory = "image_only_baseline"
+        if "MemoryVisionAgent" in name:
+            memory = "textual_state"
+        elif "SpatialMemoryVisionAgent" in name:
+            memory = "metric_grid_map"
+        model = "gemini-3.7-flash" if "gemini" in name else "m"
+        horizon = 1 if "_hist1" in name else -1
+        config = {
+            "model": model,
+            "digits": digits,
+            "memory": memory,
+            "horizon": horizon,
+            "turn_mode": "natural" if "Natural" in name else "turn_based",
+            "harness": "natural" if "Natural" in name else "turn_based",
+            "arm": "A0",
+            "box_size": 64,
+            "step_size": 32,
+            "image_size": 224,
+            "seed": 42
+        }
+    with open(os.path.join(d, "run_config.json"), "w") as f:
+        json.dump(config, f)
     with open(os.path.join(d, "results_summary.json"), "w") as f:
         json.dump({"metrics": metrics,
                    "episodes": [{"episode_id": i} for i in range(episodes)]}, f)
@@ -33,7 +54,7 @@ def test_load_results_takes_any_directory(tmp_path):
     results = load_results(str(root))
     assert len(results) == 1
     assert results[0].accuracy == 0.54
-    assert results[0].cell.memory == "textual_belief_state"
+    assert results[0].cell.memory == "textual_state"
 
 
 def test_no_hardcoded_results_path():
@@ -78,7 +99,7 @@ def test_csv_includes_both_coverage_definitions(tmp_path):
     root = str(tmp_path)
     write_run(root, "opaque", {"accuracy": 0.5, "average_stroke_coverage": 0.61,
                                "average_stroke_coverage_readable": 0.59},
-              config={"model": "m", "digits": 1, "memory": "event_logging",
+              config={"model": "m", "digits": 1, "memory": "image_only_baseline",
                       "horizon": -1})
     out = os.path.join(root, "out.csv")
     to_csv(load_results(root), out)

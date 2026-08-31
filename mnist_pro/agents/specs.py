@@ -19,7 +19,9 @@ BASE_USER_INSTRUCTION = (
     "requested JSON format."
 )
 
-THOUGHT_SUFFIX = " Include an extra key 'thought' in the JSON containing your reasoning."
+THOUGHT_SUFFIX = (
+    " Include an extra key 'thought' in the JSON containing your reasoning."
+)
 
 SPATIAL_SUFFIX = (
     " "
@@ -39,14 +41,13 @@ SPATIAL_SUFFIX = (
 class MemorySpec:
     """One row of the memory taxonomy."""
 
-    name: str                       # stable key used in configs and paths
-    display_name: str               # the name used in the paper
-    legacy_class: str               # original class name, for reading old logs
+    name: str  # stable key used in configs and paths
+    display_name: str  # the name used in the paper
     user_instruction: str
     memory_prompt_prefix: str
-    include_text_memory: bool = True     # False = visual buffer only
-    default_horizon: int = 1             # images kept; -1 means unbounded
-    answer_example_keys: tuple = ()      # extra keys shown in the out-of-steps warning
+    include_text_memory: bool = True  # False = visual buffer only
+    default_horizon: int = 1  # images kept; -1 means unbounded
+    answer_example_keys: tuple = ()  # extra keys shown in the out-of-steps warning
 
     def warning_example(self, digits: int) -> str:
         value = '"58"' if digits > 1 else "<digit>"
@@ -54,35 +55,25 @@ class MemorySpec:
         if "thought" in self.answer_example_keys:
             parts.append('"thought": "<reasoning>"')
         if "spatial_map" in self.answer_example_keys:
-            parts.append('"spatial_map": [{"coords": [x, y], "features": "<observation>"}]')
+            parts.append(
+                '"spatial_map": [{"coords": [x, y], "features": "<observation>"}]'
+            )
         parts.append('"action": "answer"')
         parts.append(f'"value": {value}')
         return "{" + ", ".join(parts) + "}"
 
 
-VISUAL_BUFFER = MemorySpec(
-    name="visual_buffer",
-    display_name="Multimodal Sensory Memory (Visual Buffer)",
-    legacy_class="SensoryVisionAgent",
-    user_instruction=BASE_USER_INSTRUCTION,
-    memory_prompt_prefix="Previous actions",
-    include_text_memory=False,
-    default_horizon=4,
-)
-
 EVENT_LOGGING = MemorySpec(
-    name="event_logging",
+    name="image_only_baseline",
     display_name="Implicit Episodic Memory (Event Logging)",
-    legacy_class="DefaultVisionAgent",
     user_instruction=BASE_USER_INSTRUCTION,
     memory_prompt_prefix="Previous actions",
     default_horizon=1,
 )
 
 TEXTUAL_BELIEF_STATE = MemorySpec(
-    name="textual_belief_state",
+    name="textual_state",
     display_name="Explicit Working Memory (Textual Belief State)",
-    legacy_class="MemoryVisionAgent",
     user_instruction=BASE_USER_INSTRUCTION + THOUGHT_SUFFIX,
     memory_prompt_prefix="Previous actions and thoughts",
     default_horizon=1,
@@ -92,15 +83,15 @@ TEXTUAL_BELIEF_STATE = MemorySpec(
 METRIC_GRID_MAP = MemorySpec(
     name="metric_grid_map",
     display_name="Structured Spatial Memory (Metric Grid Map)",
-    legacy_class="SpatialMemoryVisionAgent",
     user_instruction=BASE_USER_INSTRUCTION + SPATIAL_SUFFIX,
     memory_prompt_prefix="Previous actions, thoughts, and structured spatial map",
     default_horizon=1,
     answer_example_keys=("thought", "spatial_map"),
 )
 
-MEMORY_SPECS = {s.name: s for s in
-                (VISUAL_BUFFER, EVENT_LOGGING, TEXTUAL_BELIEF_STATE, METRIC_GRID_MAP)}
+MEMORY_SPECS = {
+    s.name: s for s in (EVENT_LOGGING, TEXTUAL_BELIEF_STATE, METRIC_GRID_MAP)
+}
 
 
 def system_instruction(digits: int) -> str:
@@ -118,7 +109,7 @@ def system_instruction(digits: int) -> str:
             "provide your final answer. "
             "Note: You only have one chance to provide the final answer, so make sure "
             "you are confident before doing so! "
-            "For moving, output: {\"action\": \"move\", \"direction\": \"up\"} "
+            'For moving, output: {"action": "move", "direction": "up"} '
             "(directions: 'up', 'down', 'left', 'right'). "
             "For answering, output the sequence as a raw string of digits, like: "
             '{"action": "answer", "value": "58"}.'
@@ -132,7 +123,7 @@ def system_instruction(digits: int) -> str:
         "When you are confident about the digit, you must provide your final answer. "
         "Note: You only have one chance to provide the final answer, so make sure you "
         "are confident before doing so! "
-        "For moving, output: {\"action\": \"move\", \"direction\": \"up\"} "
+        'For moving, output: {"action": "move", "direction": "up"} '
         "(directions: 'up', 'down', 'left', 'right'). "
         'For answering, output: {"action": "answer", "value": <digit>}.'
     )
@@ -167,15 +158,3 @@ WARNING_TEMPLATE = (
     "You have run out of steps. You must provide your final answer now. Remember, you "
     "only have one chance! Output JSON like {} at the end."
 )
-
-# Legacy class name -> (memory spec name, digits, conversation mode). Lets the
-# analysis layer read directories produced by the original implementation.
-LEGACY_CLASSES = {}
-for _spec in MEMORY_SPECS.values():
-    LEGACY_CLASSES[_spec.legacy_class] = (_spec.name, 1, "turn_based")
-    LEGACY_CLASSES["MultiDigit" + _spec.legacy_class] = (_spec.name, 2, "turn_based")
-LEGACY_CLASSES["NaturalConversationVisionAgent"] = ("event_logging", 1, "natural")
-LEGACY_CLASSES["MultiDigitNaturalConversationVisionAgent"] = ("event_logging", 2, "natural")
-LEGACY_CLASSES["NaturalConversationMemoryVisionAgent"] = ("textual_belief_state", 1, "natural")
-LEGACY_CLASSES["MultiDigitNaturalConversationMemoryVisionAgent"] = (
-    "textual_belief_state", 2, "natural")

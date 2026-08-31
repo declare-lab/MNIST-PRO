@@ -1,13 +1,8 @@
 """The single evaluation driver.
 
-Replaces `evaluate.py` and `evaluate_multidigit.py`, which were 495 and 526 lines and
-83% textually identical -- every change had to be made twice, and they had drifted.
-Digit count is a parameter here, not a fork.
-
 What each run writes:
 
-    run_config.json        the exact Cell, so nothing is ever recovered by parsing a
-                           directory name again
+    run_config.json        the exact Cell configuration
     results_summary.json   metrics plus one entry per episode
     episode_<i>/
         original.png       the unmasked canvas
@@ -16,8 +11,7 @@ What each run writes:
                            per-step latency and token usage, termination reason
         response_<n>.json  the raw model response, saved before anything parses it
 
-A failed episode is recorded with its error and the sweep continues; previously a
-backend that exhausted its retries raised and killed the whole run.
+A failed episode is recorded with its error and the sweep continues.
 """
 
 from __future__ import annotations
@@ -43,35 +37,47 @@ from .wrappers import make_env
 
 
 def run_dir_name(cell: Cell, evalsets: int, timestamp: str) -> str:
-    """Kept compatible with the released naming so old and new runs coexist."""
+    """Generate a run directory name compatible with the evaluation dataset schemas."""
     prefix = f"multidigit_{cell.digits}_" if cell.digits > 1 else ""
-    legacy = {"visual_buffer": "SensoryVisionAgent", "event_logging": "DefaultVisionAgent",
-              "textual_belief_state": "MemoryVisionAgent",
-              "metric_grid_map": "SpatialMemoryVisionAgent"}[cell.memory]
+    legacy = {
+        "image_only_baseline": "DefaultVisionAgent",
+        "textual_state": "MemoryVisionAgent",
+        "metric_grid_map": "SpatialMemoryVisionAgent",
+    }[cell.memory]
     if cell.digits > 1:
         legacy = "MultiDigit" + legacy
     max_steps = default_max_steps(cell)
-    return (f"{prefix}{cell.model}_img{cell.image_size}_box{cell.box_size}"
-            f"_step{cell.step_size}_maxsteps{max_steps}_seed{cell.seed}"
-            f"_{legacy}_hist{cell.horizon}_evalsets{evalsets}_{timestamp}")
+    return (
+        f"{prefix}{cell.model}_img{cell.image_size}_box{cell.box_size}"
+        f"_step{cell.step_size}_maxsteps{max_steps}_seed{cell.seed}"
+        f"_{legacy}_hist{cell.horizon}_evalsets{evalsets}_{timestamp}"
+    )
 
 
 def default_max_steps(cell: Cell) -> int:
-    """Steps needed to sweep the canvas, from the original drivers verbatim.
+    """Calculate the maximum steps needed to fully sweep the canvas.
 
-    Both drivers computed `ceil(max(0, extent - box) / step) + 1` per axis and
-    multiplied. For the published geometry this gives 36 at one digit and 78 at two,
-    which is what the released runs used.
+    Computes `ceil(max(0, extent - box) / step) + 1` per axis and multiplies.
     """
-    width = math.ceil(max(0, cell.image_size * cell.digits - cell.box_size)
-                      / cell.step_size) + 1
+    width = (
+        math.ceil(
+            max(0, cell.image_size * cell.digits - cell.box_size) / cell.step_size
+        )
+        + 1
+    )
     height = math.ceil(max(0, cell.image_size - cell.box_size) / cell.step_size) + 1
     return width * height
 
 
-def run_mcp_episode(spec: EpisodeSpec, cell: Cell, dataset, out_root: str,
-                    max_steps: int, draw_border: bool = True,
-                    driver=None) -> dict:
+def run_mcp_episode(
+    spec: EpisodeSpec,
+    cell: Cell,
+    dataset,
+    out_root: str,
+    max_steps: int,
+    draw_border: bool = True,
+    driver=None,
+) -> dict:
     """Run one episode through the MCP harness.
 
     `driver` is any callable taking the live `MCPEpisode`; it defaults to the
@@ -82,14 +88,24 @@ def run_mcp_episode(spec: EpisodeSpec, cell: Cell, dataset, out_root: str,
 
     ep_dir = os.path.join(out_root, f"episode_{spec.episode_id}")
     os.makedirs(ep_dir, exist_ok=True)
-    canvas_spec = CanvasSpec(digits=cell.digits, image_size=cell.image_size,
-                             box_size=cell.box_size, step_size=cell.step_size)
+    canvas_spec = CanvasSpec(
+        digits=cell.digits,
+        image_size=cell.image_size,
+        box_size=cell.box_size,
+        step_size=cell.step_size,
+    )
     images = images_for(dataset, spec)
 
     error, driver_result = None, None
-    with MCPEpisode(images, spec.label, spec=canvas_spec, max_steps=max_steps,
-                    arm=cell.arm, workdir=os.path.join(ep_dir, "workspace"),
-                    draw_border=draw_border) as episode:
+    with MCPEpisode(
+        images,
+        spec.label,
+        spec=canvas_spec,
+        max_steps=max_steps,
+        arm=cell.arm,
+        workdir=os.path.join(ep_dir, "workspace"),
+        draw_border=draw_border,
+    ) as episode:
         Image.fromarray(episode.env.canvas).save(os.path.join(ep_dir, "original.png"))
         try:
             driver_result = (driver or _default_mcp_driver(cell))(episode)
@@ -100,9 +116,15 @@ def run_mcp_episode(spec: EpisodeSpec, cell: Cell, dataset, out_root: str,
         record = episode.env.record
 
     payload.update(record.to_dict())
-    payload.update({"episode_id": spec.episode_id, "indices": list(spec.indices),
-                    "harness": cell.harness, "error": error,
-                    "driver": getattr(driver_result, "__dict__", driver_result)})
+    payload.update(
+        {
+            "episode_id": spec.episode_id,
+            "indices": list(spec.indices),
+            "harness": cell.harness,
+            "error": error,
+            "driver": getattr(driver_result, "__dict__", driver_result),
+        }
+    )
     payload.update(exploration_stats(episode.env.canvas, record.windows, canvas_spec))
     with open(os.path.join(ep_dir, "trajectory.json"), "w") as f:
         json.dump(payload, f, indent=2, default=str)
@@ -110,22 +132,19 @@ def run_mcp_episode(spec: EpisodeSpec, cell: Cell, dataset, out_root: str,
 
 
 def _default_mcp_driver(cell: Cell, notes: bytes | None = None):
-    """Pick the driver that matches how this cell is meant to be run.
+    """Pick the driver that matches how this cell is configured to run.
 
-    Gemini goes through the Antigravity managed agent, which is how the released
-    six-arm results were produced: the controller posts an interaction, the agent
-    returns pending tool calls, and the controller executes them through the MCP
-    server. Providers exposing OpenAI-style tool calling use the built-in loop.
-    Either way the calls reach the environment only through the MCP server, so the
-    isolation guarantees are identical.
+    Gemini models use the Antigravity managed agent driver.
+    OpenAI-compatible models use the built-in tool loop driver.
     """
     from .harness.antigravity import AntigravityDriver
     from .harness.tool_agent import OpenAIToolAgent
 
     def driver(episode):
         if cell.harness == "antigravity" or cell.model.startswith("gemini"):
-            return AntigravityDriver(model=cell.model, digits=cell.digits,
-                                     notes=notes).drive(episode)
+            return AntigravityDriver(
+                model=cell.model, digits=cell.digits, notes=notes
+            ).drive(episode)
         backend = get_backend(cell.model)
         client = getattr(backend, "client", None)
         if client is None or not hasattr(client, "chat"):
@@ -134,28 +153,50 @@ def _default_mcp_driver(cell: Cell, notes: bytes | None = None):
                 f"Gemini uses the Antigravity managed agent; OpenAI-compatible "
                 f"providers use the built-in tool loop. Pass driver= for anything "
                 f"else, or drive the episode from an external runtime with the "
-                f"config MCPEpisode writes.")
+                f"config MCPEpisode writes."
+            )
         return OpenAIToolAgent(client, cell.model, digits=cell.digits).drive(episode)
+
     return driver
 
 
-def run_episode(spec: EpisodeSpec, cell: Cell, dataset, out_root: str,
-                max_steps: int, draw_border: bool = True) -> dict:
+def run_episode(
+    spec: EpisodeSpec,
+    cell: Cell,
+    dataset,
+    out_root: str,
+    max_steps: int,
+    draw_border: bool = True,
+) -> dict:
     ep_dir = os.path.join(out_root, f"episode_{spec.episode_id}")
     os.makedirs(ep_dir, exist_ok=True)
-    canvas_spec = CanvasSpec(digits=cell.digits, image_size=cell.image_size,
-                             box_size=cell.box_size, step_size=cell.step_size)
+    canvas_spec = CanvasSpec(
+        digits=cell.digits,
+        image_size=cell.image_size,
+        box_size=cell.box_size,
+        step_size=cell.step_size,
+    )
     images = images_for(dataset, spec)
 
-    env = make_env(images, spec.label, spec=canvas_spec, max_steps=max_steps,
-                   draw_border=draw_border)
+    env = make_env(
+        images,
+        spec.label,
+        spec=canvas_spec,
+        max_steps=max_steps,
+        draw_border=draw_border,
+    )
     Image.fromarray(env.canvas).save(os.path.join(ep_dir, "original.png"))
 
     agent = GlimpseAgent(
         backend=get_backend(cell.model),
-        config=AgentConfig(memory=cell.memory, digits=cell.digits,
-                           horizon=cell.horizon, turn_mode=cell.turn_mode,
-                           max_steps=max_steps))
+        config=AgentConfig(
+            memory=cell.memory,
+            digits=cell.digits,
+            horizon=cell.horizon,
+            turn_mode=cell.turn_mode,
+            max_steps=max_steps,
+        ),
+    )
 
     obs, _ = env.reset()
     obs.save(os.path.join(ep_dir, "step_0.png"))
@@ -164,20 +205,25 @@ def run_episode(spec: EpisodeSpec, cell: Cell, dataset, out_root: str,
         terminated = truncated = False
         while not (terminated or truncated):
             action, raw, usage = agent.act(obs)
-            obs, _, terminated, truncated, _ = env.step(action, raw_response=raw,
-                                                        usage=usage)
+            obs, _, terminated, truncated, _ = env.step(
+                action, raw_response=raw, usage=usage
+            )
             obs.save(os.path.join(ep_dir, f"step_{env.steps}.png"))
             with open(os.path.join(ep_dir, f"response_{env.steps}.json"), "w") as f:
-                json.dump({"step": env.steps, "raw_response": raw, "usage": usage},
-                          f, indent=2)
+                json.dump(
+                    {"step": env.steps, "raw_response": raw, "usage": usage},
+                    f,
+                    indent=2,
+                )
     except Exception as exc:  # recorded, never fatal to the sweep
         error = f"{type(exc).__name__}: {exc}"
         traceback.print_exc()
 
     record = env.record
     payload = record.to_dict()
-    payload.update({"episode_id": spec.episode_id, "indices": list(spec.indices),
-                    "error": error})
+    payload.update(
+        {"episode_id": spec.episode_id, "indices": list(spec.indices), "error": error}
+    )
     payload.update(exploration_stats(env.canvas, record.windows, canvas_spec))
     with open(os.path.join(ep_dir, "trajectory.json"), "w") as f:
         json.dump(payload, f, indent=2)
@@ -186,25 +232,46 @@ def run_episode(spec: EpisodeSpec, cell: Cell, dataset, out_root: str,
 
 def run_control(spec: EpisodeSpec, cell: Cell, dataset) -> dict:
     """The unmasked-canvas control, through the same agent object as the main path."""
-    canvas_spec = CanvasSpec(digits=cell.digits, image_size=cell.image_size,
-                             box_size=cell.box_size, step_size=cell.step_size)
+    canvas_spec = CanvasSpec(
+        digits=cell.digits,
+        image_size=cell.image_size,
+        box_size=cell.box_size,
+        step_size=cell.step_size,
+    )
     from .rendering import build_canvas
+
     canvas = build_canvas(images_for(dataset, spec), canvas_spec)
-    # The control is one stateless call, so the turn mode never comes into play --
-    # but the config still has to be internally consistent.
-    agent = GlimpseAgent(backend=get_backend(cell.model),
-                         config=AgentConfig(memory=cell.memory, digits=cell.digits,
-                                            horizon=cell.horizon,
-                                            turn_mode=cell.turn_mode))
+    # The control run is a stateless single-step prediction.
+    agent = GlimpseAgent(
+        backend=get_backend(cell.model),
+        config=AgentConfig(
+            memory=cell.memory,
+            digits=cell.digits,
+            horizon=cell.horizon,
+            turn_mode=cell.turn_mode,
+        ),
+    )
     raw, value, _ = agent.predict_full_image(Image.fromarray(canvas))
-    return {"episode_id": spec.episode_id, "indices": list(spec.indices),
-            "label": spec.label, "control_prediction": value,
-            "control_success": value == spec.label, "raw_response": raw}
+    return {
+        "episode_id": spec.episode_id,
+        "indices": list(spec.indices),
+        "label": spec.label,
+        "control_prediction": value,
+        "control_success": value == spec.label,
+        "raw_response": raw,
+    }
 
 
-def run_cell(cell: Cell, results_dir: str, evalsets: int = 10, workers: int = 10,
-             data_dir: str = "data", limit: int | None = None,
-             draw_border: bool = True, with_control: bool = True) -> str:
+def run_cell(
+    cell: Cell,
+    results_dir: str,
+    evalsets: int = 10,
+    workers: int = 10,
+    data_dir: str = "data",
+    limit: int | None = None,
+    draw_border: bool = True,
+    with_control: bool = True,
+) -> str:
     dataset = load_mnist(data_dir)
     specs = sample_balanced(dataset, evalsets, digits=cell.digits, seed=cell.seed)
     if limit:
@@ -215,15 +282,29 @@ def run_cell(cell: Cell, results_dir: str, evalsets: int = 10, workers: int = 10
     out_root = os.path.join(results_dir, run_dir_name(cell, evalsets, timestamp))
     os.makedirs(out_root, exist_ok=True)
     with open(os.path.join(out_root, "run_config.json"), "w") as f:
-        json.dump({**cell.to_dict(), "max_steps": max_steps, "evalsets": evalsets,
-                   "draw_border": draw_border, "timestamp": timestamp}, f, indent=2)
+        json.dump(
+            {
+                **cell.to_dict(),
+                "max_steps": max_steps,
+                "evalsets": evalsets,
+                "draw_border": draw_border,
+                "timestamp": timestamp,
+            },
+            f,
+            indent=2,
+        )
 
     episodes = []
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        episode_fn = (run_mcp_episode if cell.harness in TOOL_USE_HARNESSES
-                      else run_episode)
-        futures = {pool.submit(episode_fn, s, cell, dataset, out_root, max_steps,
-                               draw_border): s for s in specs}
+        episode_fn = (
+            run_mcp_episode if cell.harness in TOOL_USE_HARNESSES else run_episode
+        )
+        futures = {
+            pool.submit(
+                episode_fn, s, cell, dataset, out_root, max_steps, draw_border
+            ): s
+            for s in specs
+        }
         for fut in as_completed(futures):
             episodes.append(fut.result())
     episodes.sort(key=lambda e: e["episode_id"])
@@ -243,25 +324,45 @@ def run_cell(cell: Cell, results_dir: str, evalsets: int = 10, workers: int = 10
     scored = [e for e in episodes if e.get("error") is None]
     reasons = {}
     for e in episodes:
-        reasons[e.get("termination_reason")] = reasons.get(e.get("termination_reason"), 0) + 1
+        reasons[e.get("termination_reason")] = (
+            reasons.get(e.get("termination_reason"), 0) + 1
+        )
     metrics = {
         "total_episodes": len(episodes),
         "scored_episodes": len(scored),
         "failed_episodes": len(episodes) - len(scored),
-        "accuracy": (sum(e["success"] for e in scored) / len(scored)) if scored else None,
-        "average_steps": (sum(e["n_steps"] for e in scored) / len(scored)) if scored else None,
-        "average_stroke_coverage": (sum(e["stroke_coverage"] for e in scored) / len(scored))
-                                   if scored else None,
-        "average_stroke_coverage_readable":
+        "accuracy": (
+            (sum(e["success"] for e in scored) / len(scored)) if scored else None
+        ),
+        "average_steps": (
+            (sum(e["n_steps"] for e in scored) / len(scored)) if scored else None
+        ),
+        "average_stroke_coverage": (
+            (sum(e["stroke_coverage"] for e in scored) / len(scored))
+            if scored
+            else None
+        ),
+        "average_stroke_coverage_readable": (
             (sum(e["stroke_coverage_readable"] for e in scored) / len(scored))
-            if scored else None,
+            if scored
+            else None
+        ),
         "termination_reasons": reasons,
     }
     if with_control:
         ok = [e for e in episodes if e.get("control_success") is not None]
-        metrics["control_accuracy"] = (sum(e["control_success"] for e in ok) / len(ok)) if ok else None
+        metrics["control_accuracy"] = (
+            (sum(e["control_success"] for e in ok) / len(ok)) if ok else None
+        )
 
     with open(os.path.join(out_root, "results_summary.json"), "w") as f:
-        json.dump({"run_config": {**cell.to_dict(), "max_steps": max_steps},
-                   "metrics": metrics, "episodes": episodes}, f, indent=2)
+        json.dump(
+            {
+                "run_config": {**cell.to_dict(), "max_steps": max_steps},
+                "metrics": metrics,
+                "episodes": episodes,
+            },
+            f,
+            indent=2,
+        )
     return out_root
