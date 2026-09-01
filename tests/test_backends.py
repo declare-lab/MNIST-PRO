@@ -1,8 +1,8 @@
 """Provider settings that must remain compatible with the existing experiments."""
 
+import sys
 from types import SimpleNamespace
-
-import openai
+from types import ModuleType
 
 from mnist_pro import backends
 
@@ -66,7 +66,9 @@ def test_openai_backend_uses_the_standard_openai_client(monkeypatch):
         def __init__(self, **kwargs):
             seen.update(kwargs)
 
-    monkeypatch.setattr(openai, "OpenAI", Client)
+    fake_openai = ModuleType("openai")
+    fake_openai.OpenAI = Client
+    monkeypatch.setitem(sys.modules, "openai", fake_openai)
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
 
     backend = backends.OpenAIBackend(model_name="gpt-5.6")
