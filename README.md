@@ -9,6 +9,9 @@
   <sup>1</sup>DeCLaRe Lab, Nanyang Technological University, Singapore<br>
   <sup>2</sup>Agency for Science, Technology, and Research (A*STAR), Singapore
 </p>
+<p align="center">
+  <a href="https://arxiv.org/abs/2608.31022"><b>[📄 Paper]</b></a>
+</p>
 
 ## 📖 Overview
 > **MNIST-PRO** is a controlled evaluation benchmark designed to isolate and evaluate the agentic perception capabilities of multimodal models. By converting MNIST digit recognition into a sequential, glimpse-based search task under partial observability, it forces agents to coordinate active visual sensing with working memory to construct and update an evolving perceptual state of the environment. To systematically analyze spatial tracking, visual integration, and sequential memory limits, the benchmark introduces lookback constraints and hierarchical task horizons (Single-Digit and Multi-Digit sequences) across diverse state representations, exposing the critical gap between passive visual recognition and active stateful perception.
@@ -119,6 +122,14 @@ results/<run-name>/
 ## 📝 Citation
 
 ```bibtex
-
+@misc{toh2026mnistpromnistpartiallyobservable,
+      title={MNIST-PRO: MNIST is Back as a Partially Observable World for AI Agents}, 
+      author={Vernon Toh and Navonil Majumder and Zhengyuan Liu and Nancy F. Chen and Soujanya Poria},
+      year={2026},
+      eprint={2608.31022},
+      archivePrefix={arXiv},
+      primaryClass={cs.AI},
+      url={https://arxiv.org/abs/2608.31022}, 
+}
 ```
 
